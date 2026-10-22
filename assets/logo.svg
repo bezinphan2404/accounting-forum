@@ -1,0 +1,19 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Circle border -->
+  <circle cx="100" cy="100" r="88" fill="none" stroke="#1d3557" stroke-width="9"/>
+  
+  <!-- B letter -->
+  <path d="M50 55 L50 115 L72 115 C85 115 92 108 92 99 C92 92 87 87 80 86 C86 84 90 79 90 73 C90 64 83 55 72 55 Z M62 65 L72 65 C78 65 81 69 81 73 C81 78 78 81 72 81 L62 81 Z M62 90 L73 90 C80 90 83 94 83 99 C83 104 80 106 73 106 L62 106 Z" fill="#1d3557"/>
+  
+  <!-- Z letter with extending diagonal -->
+  <path d="M100 55 L140 55 L140 65 L112 105 L140 105 L140 115 L100 115 L100 105 L128 65 L100 65 Z" fill="#1d3557"/>
+  
+  <!-- Bar chart (3 ascending bars) -->
+  <rect x="52" y="140" width="14" height="18" rx="2" fill="#1d3557"/>
+  <rect x="72" y="130" width="14" height="28" rx="2" fill="#1d3557"/>
+  <rect x="92" y="118" width="14" height="40" rx="2" fill="#1d3557"/>
+  
+  <!-- Upward arrow / trend line -->
+  <path d="M115 155 L130 130 L140 138" fill="none" stroke="#1d3557" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <polygon points="142,128 148,140 136,140" fill="#1d3557"/>
+</svg>

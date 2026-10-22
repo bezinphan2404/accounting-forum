@@ -1,0 +1,1 @@
+# Accounting Forum\n\nA lightweight forum for sharing accounting knowledge, experiences, and documents.\n\n## Features\n- Posting threads\n- Replies\n- Category tags\n- Search\n- User login / registration\n\n## Design\nLight mode with pastel colors, glass‑morphism cards, and smooth animations.\n
