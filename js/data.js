@@ -414,3 +414,4 @@ function resetDB() {
   localStorage.removeItem(DB_KEY);
   getDB(); // re-seed
 }
+window.getDB = getDB; // expose to global scope for Vercel build
