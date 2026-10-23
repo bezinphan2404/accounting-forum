@@ -19,7 +19,7 @@ const ICONS = {
 };
 
 import { getDB, getCategories, getCategoryById, getThreadCountByCategory, getUsers, getUserById, createUser, authenticateUser, getThreads, getThreadById, createThread, incrementViews, toggleLike, getReplies, createReply, getReplyCount, getStats } from './remote-data.js';
-import { refreshData, getCurrentUser, signOut, updateThread, updateReply, isPasswordRecovery, authCallbackError, sendPasswordReset, completePasswordReset } from './remote-data.js';
+import { refreshData, getCurrentUser, signInWithGoogle, signOut, updateThread, updateReply, isPasswordRecovery, authCallbackError, sendPasswordReset, completePasswordReset } from './remote-data.js';
 let currentUser = null;
 
 function setCurrentUser(user) {
@@ -633,7 +633,7 @@ function renderLogin() {
           <h2 class="form-title">Đăng nhập</h2>
           <p class="form-subtitle">Chào mừng quay lại BZ Forum</p>
 
-          <form onsubmit="handleLogin(event)">
+          <button type="button" class="btn btn-outline btn-lg" style="width:100%;margin-bottom:16px" onclick="handleGoogleLogin(event)">Tiếp tục với Google</button><p class="form-subtitle">Hoặc đăng nhập bằng email</p><form onsubmit="handleLogin(event)">
             <div class="form-group">
               <label class="form-label">Email</label>
               <input type="email" class="form-input" id="login-email" placeholder="email@example.com" required>
@@ -676,7 +676,7 @@ function renderRegister() {
           <h2 class="form-title">Đăng ký</h2>
           <p class="form-subtitle">Tham gia cộng đồng kế toán BZ Forum</p>
 
-          <form onsubmit="handleRegister(event)">
+          <button type="button" class="btn btn-outline btn-lg" style="width:100%;margin-bottom:16px" onclick="handleGoogleLogin(event)">Tiếp tục với Google</button><p class="form-subtitle">Hoặc đăng ký bằng email</p><form onsubmit="handleRegister(event)">
             <div class="form-group">
               <label class="form-label">Họ tên</label>
               <input type="text" class="form-input" id="reg-name" placeholder="Nhập họ tên" required>
@@ -960,3 +960,8 @@ async function handleResetPassword(event) {
  catch(error){box.textContent=friendlyError(error);}finally{button.disabled=false;}
 }
 Object.assign(window,{handleForgotPassword,handleResetPassword});
+
+window.handleGoogleLogin = async function(event) {
+ const button=event.currentTarget;if(button.disabled)return;button.disabled=true;
+ try {await signInWithGoogle();} catch(error){showToast(friendlyError(error),'error');button.disabled=false;}
+};

@@ -53,6 +53,9 @@ export const getStats = ()=>({threads:db.threads.length,replies:db.replies.lengt
 export async function authenticateUser(email,password) {
   check(await client.auth.signInWithPassword({email,password})); const user=await getCurrentUser(); await refreshData(); return user;
 }
+export async function signInWithGoogle() {
+  check(await client.auth.signInWithOAuth({provider:'google', options:{redirectTo:window.location.origin + '/', queryParams:{prompt:'select_account'}}}));
+}
 export async function createUser(name,email,password) {
   const {data,error}=await client.auth.signUp({email,password,options:{data:{name}}});
   if(error) return {error:error.message};
