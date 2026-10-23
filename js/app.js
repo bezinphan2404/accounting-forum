@@ -17,7 +17,7 @@ const ICONS = {
   chevronDown: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
 };
 
-// ===== Auth State =====
+import { getDB, getCategories, getCategoryById, getThreadCountByCategory, getUsers, getUserById, createUser, authenticateUser, getThreads, getThreadById, createThread, incrementViews, toggleLike, getReplies, createReply, getReplyCount, getStats } from './data.js';
 let currentUser = JSON.parse(sessionStorage.getItem('bz_current_user')) || null;
 
 function setCurrentUser(user) {

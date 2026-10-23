@@ -415,3 +415,4 @@ function resetDB() {
   getDB(); // re-seed
 }
 window.getDB = getDB; // expose to global scope for Vercel build
+export { getDB, saveDB, getCategories, getCategoryById, getThreadCountByCategory, getUsers, getUserById, createUser, authenticateUser, getThreads, getThreadById, createThread, incrementViews, toggleLike, getReplies, createReply, getReplyCount, getStats };
