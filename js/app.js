@@ -170,10 +170,14 @@ function renderMarkdown(text) {
 
   // Restore Tables
   tables.forEach((tbl, idx) => {
-    html = html.replace(`__TABLE_PLACEHOLDER_${idx}__`, tbl);
+    html = html.replace(`__TABLE_PLACEHOLDER_${idx}__`, () => tbl);
   });
 
-  columnBlocks.forEach((block, i) => { html = html.replace(`BZCOLUMNBLOCK${i}END`, block); });
+  html = html.replace(/^(<strong>[\s\S]*?<\/strong>)(?:<br>\s*){2}/, '<p class="article-lead">$1</p>');
+  columnBlocks.forEach((block, i) => {
+    const pattern = new RegExp('(?:<br>\\s*)*BZCOLUMNBLOCK' + i + 'END(?:<br>\\s*)*');
+    html = html.replace(pattern, () => block);
+  });
   return html;
 }
 
