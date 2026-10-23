@@ -755,3 +755,5 @@ a:hover { color: var(--color-navy); }
 .explain-column-2 .explain-step:last-child {background:#fff9e9;border-color:#e9cf83;}
 .form-card form > .form-label {display:block;margin-top:16px;}
 #recovery-message,#reset-message {margin:16px 0;line-height:1.6;}
+
+.thread-detail:has(.article-columns) {max-width:none;width:100%;}
