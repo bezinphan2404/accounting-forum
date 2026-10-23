@@ -18,13 +18,13 @@ const ICONS = {
   chevronDown: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
 };
 
-import { getDB, getCategories, getCategoryById, getThreadCountByCategory, getUsers, getUserById, createUser, authenticateUser, getThreads, getThreadById, createThread, incrementViews, toggleLike, getReplies, createReply, getReplyCount, getStats } from './data.js';
-let currentUser = JSON.parse(sessionStorage.getItem('bz_current_user')) || null;
+import { getDB, getCategories, getCategoryById, getThreadCountByCategory, getUsers, getUserById, createUser, authenticateUser, getThreads, getThreadById, createThread, incrementViews, toggleLike, getReplies, createReply, getReplyCount, getStats } from './remote-data.js';
+import { refreshData, getCurrentUser, signOut, updateThread, updateReply, isPasswordRecovery, authCallbackError, sendPasswordReset, completePasswordReset } from './remote-data.js';
+let currentUser = null;
 
 function setCurrentUser(user) {
   currentUser = user;
-  if (user) sessionStorage.setItem('bz_current_user', JSON.stringify(user));
-  else sessionStorage.removeItem('bz_current_user');
+  sessionStorage.removeItem('bz_current_user');
 }
 
 // ===== Toast =====
@@ -66,7 +66,7 @@ function formatDate(dateStr) {
 function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
-  return div.innerHTML;
+  return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function nl2br(str) {
@@ -115,7 +115,23 @@ function parseMarkdownTables(text) {
 
 function renderMarkdown(text) {
   if (!text) return '';
+  const columnBlocks = [];
+  text = text.replace(/:::columns\s*\n([\s\S]*?)\n:::endcolumns/g, (_, body) => {
+    const columns = body.split(/^### /m).filter(part => part.trim());
+    const cards = columns.map((column, index) => {
+      const [title, ...lines] = column.trim().split('\n');
+      const steps = lines.join('\n').split(/^#### /m).filter(part => part.trim());
+      return `<article class="explain-column explain-column-${index % 3}"><header><span class="explain-number">${index + 1}</span><h3>${escapeHtml(title)}</h3></header><div class="explain-steps">${steps.map(step => {
+        const [label, ...detail] = step.trim().split('\n');
+        return `<section class="explain-step"><h4>${escapeHtml(label)}</h4><div>${renderMarkdown(detail.join('\n'))}</div></section>`;
+      }).join('')}</div></article>`;
+    }).join('');
+    const key = `BZCOLUMNBLOCK${columnBlocks.length}END`;
+    columnBlocks.push(`<section class="article-columns" aria-label="So sánh chính sách theo nhóm hàng">${cards}</section>`);
+    return key;
+  });
   let html = escapeHtml(text);
+  html = html.replace(/\[([^\]\n]+)\]\((https:\/\/[^\s)<>]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1 ↗</a>');
 
   // Allow intentional line breaks inside table cells
   html = html.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
@@ -157,6 +173,7 @@ function renderMarkdown(text) {
     html = html.replace(`__TABLE_PLACEHOLDER_${idx}__`, tbl);
   });
 
+  columnBlocks.forEach((block, i) => { html = html.replace(`BZCOLUMNBLOCK${i}END`, block); });
   return html;
 }
 
@@ -184,8 +201,16 @@ function router() {
   } else if (hash.startsWith('#/thread/')) {
     const threadId = hash.replace('#/thread/', '');
     renderThread(threadId);
+  } else if (hash === '#/admin') {
+    renderAdmin();
+  } else if (hash.startsWith('#/edit/')) {
+    renderEditThread(hash.replace('#/edit/', ''));
   } else if (hash === '#/new-thread') {
     renderNewThread();
+  } else if (hash === '#/forgot-password') {
+    renderForgotPassword();
+  } else if (hash === '#/reset-password') {
+    renderResetPassword();
   } else if (hash === '#/login') {
     renderLogin();
   } else if (hash === '#/register') {
@@ -247,9 +272,10 @@ function renderUserMenu() {
   return `
     <div class="user-menu" id="user-menu" onclick="toggleDropdown()">
       <div class="user-menu-avatar">${escapeHtml(currentUser.avatar)}</div>
-      <span class="user-menu-name">${escapeHtml(currentUser.name)}</span>
+      <span class="user-menu-name">${escapeHtml(currentUser.name)} ${currentUser.role === 'admin' ? ' · Admin' : ''}</span>
       ${ICONS.chevronDown}
       <div class="dropdown-menu" id="user-dropdown">
+        ${currentUser.role === 'admin' ? `<button class="dropdown-item" onclick="navigate('#/admin')">Quản trị diễn đàn</button>` : ''}
         <button class="dropdown-item" onclick="navigate('#/profile/${currentUser.id}')">
           ${ICONS.user} Trang cá nhân
         </button>
@@ -321,7 +347,7 @@ function renderSidebar(activeCatId) {
 function renderFooter() {
   return `
     <footer class="footer">
-      <p>© 2024 <strong>BZ Forum</strong> – Cộng đồng Kế toán Tài chính Việt Nam</p>
+      <p>© ${new Date().getFullYear()} <strong>BZ Forum</strong> – Cộng đồng Kế toán Tài chính Việt Nam</p>
       <p style="margin-top:0.3rem;">Được tạo bởi <a href="#">Bezin</a> với ❤️</p>
     </footer>
   `;
@@ -376,7 +402,7 @@ function renderHome(categoryId) {
           <h3 class="content-title">${category ? escapeHtml(category.name) : 'Bài viết mới nhất'}</h3>
           <div class="sort-options">
             <button class="btn btn-sm ${currentSort === 'newest' ? 'btn-secondary' : 'btn-ghost'}" onclick="changeSort('newest')">Mới nhất</button>
-            <button class="btn btn-sm ${currentSort === 'popular' ? 'btn-secondary' : 'btn-ghost'}" onclick="changeSort('popular')">Xem nhiều</button>
+
             <button class="btn btn-sm ${currentSort === 'most-liked' ? 'btn-secondary' : 'btn-ghost'}" onclick="changeSort('most-liked')">Yêu thích</button>
           </div>
         </div>
@@ -420,7 +446,7 @@ function renderThreadCard(thread) {
         ${category ? `<span class="thread-tag" style="background:${category.color}">${escapeHtml(category.icon + ' ' + category.name)}</span>` : ''}
         ${thread.tags.slice(0, 3).map(tag => `<span class="thread-tag" style="background: rgba(69,123,157,0.7)">#${escapeHtml(tag)}</span>`).join('')}
         <div style="flex:1"></div>
-        <span class="thread-stat">${ICONS.eye} ${thread.views}</span>
+        <span class="thread-stat"></span>
         <span class="thread-stat">${ICONS.heart} ${thread.likes}</span>
         <span class="thread-stat">${ICONS.comment} ${replyCount}</span>
       </div>
@@ -467,6 +493,7 @@ function renderThread(threadId) {
           </div>
 
           <div class="thread-detail-header">
+            ${currentUser && (currentUser.role === 'admin' || currentUser.id === thread.authorId) ? `<button class="btn btn-outline" onclick="navigate('#/edit/${thread.id}')">Sửa bài viết</button>` : ''}
             <h1 class="thread-detail-title">${escapeHtml(thread.title)}</h1>
             <div class="thread-detail-meta">
               <div class="thread-avatar" style="background: ${category?.color || 'var(--color-navy)'}; cursor:pointer;" onclick="navigate('#/profile/${author?.id}')">${escapeHtml(author?.avatar || '?')}</div>
@@ -477,7 +504,7 @@ function renderThread(threadId) {
                 <br><span class="thread-time">${formatDate(thread.createdAt)}</span>
               </div>
               <div style="flex:1"></div>
-              <span class="thread-stat">${ICONS.eye} ${thread.views} lượt xem</span>
+              <span class="thread-stat">${ICONS.eye} Bài viết cộng đồng</span>
               <button class="vote-btn" onclick="handleLike('${thread.id}')">${ICONS.heart} ${thread.likes}</button>
             </div>
           </div>
@@ -575,6 +602,7 @@ function renderNewThread() {
 
             <div class="form-actions">
               <button type="button" class="btn btn-outline" onclick="history.back()">Hủy</button>
+              <button type="button" class="btn btn-outline" onclick="previewPost()">Xem trước</button>
               <button type="submit" class="btn btn-primary btn-lg">Đăng bài viết</button>
             </div>
           </form>
@@ -608,8 +636,9 @@ function renderLogin() {
             </div>
             <div class="form-group">
               <label class="form-label">Mật khẩu</label>
-              <input type="password" class="form-input" id="login-password" placeholder="Nhập mật khẩu" required>
+              <input type="password" class="form-input" id="login-password" placeholder="Nhập mật khẩu" autocomplete="current-password" required>
             </div>
+            <p class="form-link"><a href="#/forgot-password">Quên mật khẩu?</a></p>
             <div id="login-error" class="form-error" style="display:none;"></div>
             <div class="form-actions">
               <button type="submit" class="btn btn-primary btn-lg">Đăng nhập</button>
@@ -620,13 +649,6 @@ function renderLogin() {
             Chưa có tài khoản? <a onclick="navigate('#/register')">Đăng ký ngay</a>
           </div>
 
-          <div style="margin-top: var(--space-lg); padding-top: var(--space-lg); border-top: 1px solid var(--border-color);">
-            <p style="font-size: 0.8rem; color: var(--color-text-lighter); text-align: center; margin-bottom: var(--space-sm);">Tài khoản demo:</p>
-            <div style="font-size: 0.8rem; color: var(--color-text-light); text-align: center;">
-              <strong>Admin:</strong> bezin@bzforum.vn / bezin123<br>
-              <strong>Member:</strong> huong@example.com / demo123
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -661,7 +683,7 @@ function renderRegister() {
             </div>
             <div class="form-group">
               <label class="form-label">Mật khẩu</label>
-              <input type="password" class="form-input" id="reg-password" placeholder="Tối thiểu 6 ký tự" required minlength="6">
+              <input type="password" class="form-input" id="reg-password" placeholder="Tối thiểu 8 ký tự" autocomplete="new-password" required minlength="8">
             </div>
             <div class="form-group">
               <label class="form-label">Xác nhận mật khẩu</label>
@@ -720,7 +742,7 @@ function renderSearch(query) {
 function renderProfile(userId) {
   const user = getUserById(userId);
   if (!user) { navigate('#/'); return; }
-  const userThreads = getUserThreads(userId);
+  const userThreads = getThreads().filter(t => t.authorId === userId);
 
   const app = document.getElementById('app');
   app.innerHTML = `
@@ -770,11 +792,11 @@ function handleSearch() {
   if (q) navigate('#/search?q=' + encodeURIComponent(q));
 }
 
-function handleLogin(e) {
+async function handleLogin(e) {
   e.preventDefault();
   const email = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
-  const user = authenticateUser(email, password);
+  const user = await authenticateUser(email, password);
   if (user) {
     setCurrentUser(user);
     showToast(`Chào mừng ${user.name}! 👋`);
@@ -786,7 +808,7 @@ function handleLogin(e) {
   }
 }
 
-function handleRegister(e) {
+async function handleRegister(e) {
   e.preventDefault();
   const name = document.getElementById('reg-name').value.trim();
   const email = document.getElementById('reg-email').value.trim();
@@ -800,25 +822,27 @@ function handleRegister(e) {
     return;
   }
 
-  const result = createUser(name, email, password);
+  const result = await createUser(name, email, password);
   if (result.error) {
     err.style.display = 'block';
     err.textContent = result.error;
     return;
   }
 
+  if (result.confirmationRequired) { showToast('Vui lòng mở email xác nhận tài khoản rồi đăng nhập.', 'info'); navigate('#/login'); return; }
   setCurrentUser(result.user);
   showToast(`Đăng ký thành công! Chào mừng ${result.user.name} 🎉`);
   navigate('#/');
 }
 
-function handleLogout() {
+async function handleLogout() {
+  await signOut();
   setCurrentUser(null);
   showToast('Đã đăng xuất', 'info');
   navigate('#/');
 }
 
-function handleNewThread(e) {
+async function handleNewThread(e) {
   e.preventDefault();
   const title = document.getElementById('thread-title').value.trim();
   const content = document.getElementById('thread-content').value.trim();
@@ -831,31 +855,104 @@ function handleNewThread(e) {
     return;
   }
 
-  const thread = createThread({ title, content, categoryId, tags, authorId: currentUser.id });
+  const thread = await createThread({ title, content, categoryId, tags, authorId: currentUser.id });
   showToast('Đăng bài thành công! 🎉');
   navigate('#/thread/' + thread.id);
 }
 
-function handleReply(e, threadId) {
+async function handleReply(e, threadId) {
   e.preventDefault();
   const content = document.getElementById('reply-content').value.trim();
   if (!content) { showToast('Vui lòng nhập nội dung bình luận', 'error'); return; }
 
-  createReply({ threadId, content, authorId: currentUser.id });
+  await createReply({ threadId, content, authorId: currentUser.id });
   showToast('Bình luận đã được gửi! 💬');
   renderThread(threadId);
 }
 
-function handleLike(threadId) {
-  toggleLike(threadId);
+async function handleLike(threadId) {
+  await toggleLike(threadId);
   renderThread(threadId);
 }
 
 // ===== INIT =====
-document.addEventListener('DOMContentLoaded', () => {
-  getDB(); // ensure DB is seeded
-  router();
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    currentUser = await getCurrentUser(); await refreshData();
+    if (authCallbackError) { history.replaceState(null,'',location.pathname+'#/forgot-password'); renderForgotPassword('Liên kết đã hết hạn hoặc không hợp lệ. Vui lòng yêu cầu liên kết mới.'); }
+    else if (isPasswordRecovery()) { history.replaceState(null,'',location.pathname+'?recovery=1#/reset-password'); renderResetPassword(); }
+    else router();
+  }
+  catch (error) { document.getElementById('app').innerHTML = '<p>Chưa kết nối được dữ liệu. Vui lòng tải lại trang.</p>'; console.error(error); }
 });
 
 // Expose handlers used by inline HTML attributes from this module.
 Object.assign(window, { navigate, showToast, toggleDropdown, changeSort, handleSearch, handleLogin, handleRegister, handleLogout, handleNewThread, handleReply, handleLike });
+
+// Keep async form failures visible without losing entered content.
+for (const name of ['handleLogin','handleRegister','handleLogout','handleNewThread','handleReply','handleLike']) {
+ const handler=window[name]; let pending=false; window[name]=async (...args)=>{ args[0]?.preventDefault?.(); if(pending) return; pending=true; try {await handler(...args);} catch(error){ const message = friendlyError(error); const box=document.getElementById(name==='handleLogin'?'login-error':name==='handleRegister'?'reg-error':''); if(box){box.style.display='block';box.textContent=message;} showToast(message,'error');} finally {pending=false;} };
+}
+
+function renderAdmin() {
+ if(currentUser?.role !== 'admin') { navigate('#/'); return; }
+ const stats=getStats();
+ document.getElementById('app').innerHTML=`${renderHeader()}<main class="main-layout-full"><div class="form-container"><div class="form-card card"><h1>Quản trị diễn đàn</h1><p>${stats.users} thành viên · ${stats.threads} bài viết · ${stats.replies} bình luận</p><p>Quản trị viên: ${escapeHtml(currentUser.name)}</p><button class="btn btn-primary" onclick="navigate('#/new-thread')">Tạo bài viết mới</button><h2>Bài viết</h2>${getThreads().map(t=>`<p>${escapeHtml(t.title)} <button class="btn btn-outline" onclick="navigate('#/edit/${t.id}')">Sửa bài viết</button></p>`).join('') || '<p>Chưa có bài viết.</p>'}<h2>Bình luận</h2>${getDB().replies.map(reply=>`<form onsubmit="handleAdminReply(event,'${reply.id}')"><p>${escapeHtml(getThreadById(reply.threadId)?.title || '')}</p><textarea class="form-textarea" name="content" required maxlength="10000">${escapeHtml(reply.content)}</textarea><button class="btn btn-outline" type="submit">Lưu bình luận</button></form>`).join('') || '<p>Chưa có bình luận.</p>'}</div></div></main>${renderFooter()}`;
+}
+function renderEditThread(id) {
+ const t=getThreadById(id);
+ if(!t || !currentUser || (currentUser.role!=='admin' && currentUser.id!==t.authorId)) {navigate('#/');return;}
+ document.getElementById('app').innerHTML=`${renderHeader()}<main class="main-layout-full"><div class="form-container"><div class="form-card card"><h1>Sửa bài viết</h1><form onsubmit="handleEditThread(event,'${t.id}')"><label>Tiêu đề<input class="form-input" name="title" required maxlength="300" value="${escapeHtml(t.title)}"></label><label>Danh mục<select class="form-input" name="category">${getCategories().map(c=>`<option value="${c.id}" ${c.id===t.categoryId?'selected':''}>${escapeHtml(c.name)}</option>`).join('')}</select></label><label>Nội dung<textarea class="form-textarea" name="content" required maxlength="50000">${escapeHtml(t.content)}</textarea></label><button class="btn btn-primary" type="submit">Lưu bài viết</button></form></div></div></main>${renderFooter()}`;
+}
+async function handleEditThread(event,id) {
+ event.preventDefault(); const form=event.target; const button=form.querySelector('button'); button.disabled=true;
+ try {await updateThread(id,form.elements.title.value.trim(),form.elements.content.value.trim(),form.elements.category.value);showToast('Đã lưu bài viết');navigate('#/thread/'+id);} catch(e){showToast(e.message,'error');} finally {button.disabled=false;}
+}
+async function handleAdminReply(event,id) {
+ event.preventDefault(); const form=event.target; const button=form.querySelector('button'); button.disabled=true;
+ try {await updateReply(id,form.elements.content.value.trim());showToast('Đã lưu bình luận');} catch(e){showToast(e.message,'error');} finally {button.disabled=false;}
+}
+Object.assign(window,{handleEditThread,handleAdminReply});
+
+function friendlyError(error) {
+ const message=error?.message || '';
+ if(/email not confirmed/i.test(message)) return 'Email chưa được xác nhận. Vui lòng kiểm tra hộp thư và thư rác.';
+ if(/invalid login credentials/i.test(message)) return 'Email hoặc mật khẩu không đúng.';
+ if(/rate limit|too many requests/i.test(message)) return 'Bạn đã thử nhiều lần. Vui lòng chờ rồi thử lại.';
+ if(/fetch|network|timeout/i.test(message)) return 'Kết nối chưa ổn định. Vui lòng thử lại.';
+ return message || 'Không thực hiện được. Vui lòng thử lại.';
+}
+
+function previewPost() {
+ const content=document.getElementById('thread-content')?.value || '';
+ const title=document.getElementById('thread-title')?.value || 'Xem trước bài viết';
+ const dialog=document.createElement('dialog'); dialog.className='article-preview-dialog';
+ dialog.innerHTML=`<button type="button" class="btn btn-outline preview-close">Đóng xem trước</button><h1>${escapeHtml(title)}</h1><div class="content-body">${renderMarkdown(content)}</div>`;
+ dialog.querySelector('button').addEventListener('click',()=>dialog.close());
+ dialog.addEventListener('close',()=>dialog.remove()); document.body.appendChild(dialog); dialog.showModal();
+}
+window.previewPost=previewPost;
+
+function renderForgotPassword(message='') {
+ document.getElementById('app').innerHTML=`${renderHeader()}<main class="main-layout-full"><div class="form-container"><div class="form-card card card-elevated"><h1>Quên mật khẩu</h1><p>Nhập email đã đăng ký để nhận liên kết đặt lại mật khẩu.</p><form onsubmit="handleForgotPassword(event)"><label class="form-label" for="recovery-email">Email</label><input class="form-input" id="recovery-email" type="email" autocomplete="email" required><p id="recovery-message" role="status">${escapeHtml(message)}</p><button class="btn btn-primary" type="submit">Gửi liên kết đặt lại mật khẩu</button></form><p class="form-link"><a href="#/login">Quay lại đăng nhập</a></p></div></div></main>${renderFooter()}`;
+}
+function renderResetPassword() {
+ if(!currentUser || !isPasswordRecovery() || authCallbackError) {renderForgotPassword('Hãy mở liên kết xác nhận trong email để đặt mật khẩu mới.');return;}
+ document.getElementById('app').innerHTML=`${renderHeader()}<main class="main-layout-full"><div class="form-container"><div class="form-card card card-elevated"><h1>Đặt mật khẩu mới</h1><p>Chọn mật khẩu có ít nhất 8 ký tự.</p><form onsubmit="handleResetPassword(event)"><label class="form-label" for="new-password">Mật khẩu mới</label><input class="form-input" id="new-password" type="password" autocomplete="new-password" minlength="8" required><label class="form-label" for="new-password-confirm">Nhập lại mật khẩu mới</label><input class="form-input" id="new-password-confirm" type="password" autocomplete="new-password" minlength="8" required><p id="reset-message" role="alert"></p><button class="btn btn-primary" type="submit">Lưu mật khẩu mới</button></form></div></div></main>${renderFooter()}`;
+}
+async function handleForgotPassword(event) {
+ event.preventDefault();const button=event.target.querySelector('button');if(button.disabled)return;button.disabled=true;
+ const box=document.getElementById('recovery-message');box.textContent='Đang gửi yêu cầu...';
+ try {await sendPasswordReset(document.getElementById('recovery-email').value.trim());box.textContent='Nếu email đã đăng ký, bạn sẽ nhận được liên kết đặt lại mật khẩu. Hãy kiểm tra cả thư rác và mở liên kết mới nhất.';}
+ catch(error){box.textContent=friendlyError(error);}finally{button.disabled=false;}
+}
+async function handleResetPassword(event) {
+ event.preventDefault();const button=event.target.querySelector('button');if(button.disabled)return;
+ const password=document.getElementById('new-password').value;const confirm=document.getElementById('new-password-confirm').value;const box=document.getElementById('reset-message');
+ if(password.length<8){box.textContent='Mật khẩu cần ít nhất 8 ký tự.';return;}
+ if(password!==confirm){box.textContent='Hai mật khẩu chưa khớp.';return;}
+ button.disabled=true;
+ try {await completePasswordReset(password);setCurrentUser(null);history.replaceState(null,'',location.pathname+'#/login');renderLogin();showToast('Đã đổi mật khẩu. Vui lòng đăng nhập bằng mật khẩu mới.');}
+ catch(error){box.textContent=friendlyError(error);}finally{button.disabled=false;}
+}
+Object.assign(window,{handleForgotPassword,handleResetPassword});
