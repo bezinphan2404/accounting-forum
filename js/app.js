@@ -1,3 +1,4 @@
+import logoUrl from '../assets/logo.svg';
 // ====================================
 // BZ Accounting Forum – Main Application
 // SPA with hash-based routing
@@ -212,7 +213,7 @@ function renderHeader() {
     <header class="header">
       <div class="header-inner">
         <a class="header-logo" onclick="navigate('#/')">
-          <img src="assets/logo.svg" alt="BZ Logo">
+          <img src="${logoUrl}" alt="BZ Logo">
           <div class="header-logo-text">
             <span class="header-logo-title">BZ Forum</span>
             <span class="header-logo-subtitle">Kế toán Tài chính</span>
@@ -595,7 +596,7 @@ function renderLogin() {
       <div class="form-container animate-fadeIn">
         <div class="form-card card card-elevated">
           <div style="text-align:center; margin-bottom: var(--space-lg);">
-            <img src="assets/logo.svg" alt="BZ" style="width:60px; height:60px;">
+            <img src="${logoUrl}" alt="BZ" style="width:60px; height:60px;">
           </div>
           <h2 class="form-title">Đăng nhập</h2>
           <p class="form-subtitle">Chào mừng quay lại BZ Forum</p>
@@ -644,7 +645,7 @@ function renderRegister() {
       <div class="form-container animate-fadeIn">
         <div class="form-card card card-elevated">
           <div style="text-align:center; margin-bottom: var(--space-lg);">
-            <img src="assets/logo.svg" alt="BZ" style="width:60px; height:60px;">
+            <img src="${logoUrl}" alt="BZ" style="width:60px; height:60px;">
           </div>
           <h2 class="form-title">Đăng ký</h2>
           <p class="form-subtitle">Tham gia cộng đồng kế toán BZ Forum</p>
@@ -855,3 +856,6 @@ document.addEventListener('DOMContentLoaded', () => {
   getDB(); // ensure DB is seeded
   router();
 });
+
+// Expose handlers used by inline HTML attributes from this module.
+Object.assign(window, { navigate, showToast, toggleDropdown, changeSort, handleSearch, handleLogin, handleRegister, handleLogout, handleNewThread, handleReply, handleLike });
