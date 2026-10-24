@@ -479,7 +479,7 @@ function renderThread(threadId) {
           <div class="thread-detail-content card card-elevated">
             <div class="content-body">${renderMarkdown(thread.content)}</div>
             <div style="margin-top: var(--space-lg); display:flex; gap:var(--space-sm); flex-wrap:wrap;">
-              ${thread.tags.map(tag => `<span class="thread-tag" style="background: rgba(69,123,157,0.7)">#${escapeHtml(tag)}</span>`).join('')}
+              ${thread.tags.slice(0,10).map(tag => `<span class="thread-tag" style="background: rgba(69,123,157,0.7)">#${escapeHtml(tag)}</span>`).join('')}
             </div>
           </div>
 
@@ -547,7 +547,7 @@ function renderNewThread() {
           <form data-submit="handleNewThread">
             <div class="form-group">
               <label class="form-label">Tiêu đề *</label>
-              <input type="text" class="form-input" id="thread-title" placeholder="Nhập tiêu đề bài viết..." required>
+              <input type="text" class="form-input" id="thread-title" placeholder="Nhập tiêu đề bài viết..." required maxlength="300">
             </div>
 
             <div class="form-group">
@@ -560,12 +560,13 @@ function renderNewThread() {
 
             <div class="form-group">
               <label class="form-label">Nội dung *</label>
-              <textarea class="form-textarea" id="thread-content" placeholder="Viết nội dung bài viết...\n\nMẹo: Dùng **chữ đậm** và - để tạo danh sách" required style="min-height:200px;"></textarea>
+              <textarea class="form-textarea" id="thread-content" placeholder="Viết nội dung bài viết...\n\nMẹo: Dùng **chữ đậm** và - để tạo danh sách" required maxlength="50000" style="min-height:200px;"></textarea>
             </div>
 
             <div class="form-group">
               <label class="form-label">Thẻ tags</label>
-              <input type="text" class="form-input" id="thread-tags" placeholder="Nhập các tag cách nhau bởi dấu phẩy (VD: thuế, TNCN, hướng dẫn)">
+              <input type="text" class="form-input" id="thread-tags" maxlength="2048" placeholder="Nhập các tag cách nhau bởi dấu phẩy (VD: thuế, TNCN, hướng dẫn)">
+              <small class="form-hint">Tối đa 10 thẻ, mỗi thẻ tối đa 50 ký tự.</small>
             </div>
 
             <div class="form-actions">
