@@ -817,11 +817,11 @@ a:hover { color: var(--color-navy); }
 .thread-detail:has(.article-columns) .thread-detail-content {padding:28px 32px;box-shadow:0 4px 20px #173c5d08;}
 .thread-detail:has(.article-columns) .content-body {font-size:16px;line-height:1.75;}
 .article-lead {padding:15px 18px;background:#edf5fb;border-left:4px solid #215b84;border-radius:8px;color:#183d5c;margin:0 0 18px;}
-.article-columns {gap:22px;align-items:stretch;margin:24px 0 30px;}
+.article-columns {gap:22px;align-items:start;margin:24px 0 30px;}
 .explain-column {display:flex;flex-direction:column;}
 .explain-column > header {min-height:105px;padding:20px;}
 .explain-column > header h3 {font-size:19px;}
-.explain-steps {display:grid;grid-template-rows:repeat(3,1fr);gap:28px;flex:1;padding:20px 16px;}
+.explain-steps {display:grid;grid-template-rows:none;grid-auto-rows:max-content;align-content:start;gap:28px;flex:0 0 auto;padding:20px 16px;}
 .explain-step {margin:0;padding:16px;line-height:1.65;}
 .explain-step h4 {margin-bottom:10px;}
 .explain-column-2 .explain-step::after {display:none;}
