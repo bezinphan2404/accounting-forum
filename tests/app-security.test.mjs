@@ -56,6 +56,9 @@ test('UI renders without executable attributes or global handlers and delegated 
  w.location.hash='#/category/cat-1-child';await settle();assert.ok(w.document.querySelector('.category-group details').open);
  assert.ok(w.document.querySelector('.breadcrumb').textContent.includes('Chuyên mục con'));
  w.location.hash='#/new-thread';await settle();assert.equal(w.document.querySelectorAll('optgroup').length,2);assert.equal(w.document.querySelector('option[value="cat-1-child"]').textContent,'Chuyên mục con');
+ w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};
+ w.document.getElementById('thread-content').value=':::tabs\n:::tab Một\nNội dung một\n:::tab Hai\nNội dung hai\n:::endtabs';
+ w.document.querySelector('[data-action="preview"]').click();const preview=w.document.querySelector('dialog');assert.ok(preview.open);assert.equal(preview.querySelectorAll('[role=tab]').length,2);preview.querySelectorAll('[role=tab]')[1].click();assert.equal(preview.querySelectorAll('[role=tabpanel]')[1].hidden,false);assert.equal(w.location.hash,'#/new-thread');preview.querySelector('.preview-close').click();assert.equal(w.document.querySelector('dialog'),null);
  w.location.hash='#/edit/'+id;await settle();assert.equal(w.document.querySelector('select[name="category"]').value,child.id);
  w.location.hash='#/feedback';await settle();assert.ok(w.document.body.textContent.includes('Public feedback <img'));
  assert.equal(w.document.querySelectorAll('.feedback-card script,.feedback-card img').length,0);

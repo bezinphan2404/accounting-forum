@@ -929,7 +929,7 @@ function previewPost() {
  const dialog=document.createElement('dialog'); dialog.className='article-preview-dialog';
  dialog.innerHTML=`<button type="button" class="btn btn-outline preview-close">Đóng xem trước</button><h1>${escapeHtml(title)}</h1><div class="content-body">${renderMarkdown(content)}</div>`;
  dialog.querySelector('button').addEventListener('click',()=>dialog.close());
- dialog.addEventListener('close',()=>dialog.remove()); document.body.appendChild(dialog); dialog.showModal();
+ dialog.addEventListener('close',()=>dialog.remove()); document.body.appendChild(dialog); dialog.showModal(); mountArticleTabs(dialog);
 }
 
 
