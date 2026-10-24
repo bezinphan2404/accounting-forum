@@ -127,3 +127,15 @@ test('existing single-topic articles move into children without changing content
   }
  });
 });
+
+test('cross-tax overview gets its own child and parent counts include both children',async()=>{
+ const overview='9b89b85f-09c0-47bb-a4c1-784e0832c378';
+ await db.query("insert into public.threads(id,author_id,category_id,title,content) values($1,$2,'cat-2','Cập nhật thuế 2026: bảng tra nhanh và việc kế toán cần làm cuối năm','Original cross-tax article')",[overview,a]);
+ const before=(await db.query('select title,content,author_id,created_at from public.threads where id=$1',[overview])).rows;
+ const sql=await readFile(new URL('../supabase/007_tax_overview.sql',import.meta.url),'utf8');await db.exec(sql);await db.exec(sql);
+ assert.deepEqual((await db.query('select title,content,author_id,created_at from public.threads where id=$1',[overview])).rows,before);
+ await as('authenticated',a,async()=>{
+  const stats=(await db.query('select public.forum_stats() s')).rows[0].s;
+  assert.equal(stats.categoryCounts['cat-2'],2);assert.equal(stats.categoryCounts['cat-2-vat'],1);assert.equal(stats.categoryCounts['cat-2-overview'],1);assert.equal(stats.subcategories,39);
+ });
+});

@@ -36,12 +36,12 @@ Có thể xem mẫu trong articles/vat-agriculture-2026.md. Khối :::columns k�
 
 ## Danh mục chuyên sâu và quyền đọc (24/10/2026)
 
-Migration `005_member_read_categories.sql` thêm parent_id/sort_order, giữ 8 mã nhóm cũ, tạo 38 chuyên mục con và đặt Hỏi đáp cuối. Nhóm mẹ lọc và đếm cả bài trực tiếp lẫn bài trong nhóm con. Migration 006 sau đó xếp hai bài hiện có có chủ đề rõ vào Thuế GTGT và BHXH; giữ nguyên nội dung/tác giả. Bài tổng hợp nhiều sắc thuế vẫn ở nhóm mẹ. Giao diện có nhóm mở/thu gọn, đường dẫn nhóm mẹ, breadcrumb và chọn nhóm khi tạo/sửa.
+Migration `005_member_read_categories.sql` thêm parent_id/sort_order, giữ 8 mã nhóm cũ, tạo 38 chuyên mục con (39 sau migration 007) và đặt Hỏi đáp cuối. Nhóm mẹ lọc và đếm cả bài trực tiếp lẫn bài trong nhóm con. Migration 006 sau đó xếp hai bài hiện có có chủ đề rõ vào Thuế GTGT và BHXH; giữ nguyên nội dung/tác giả. Migration 007 thêm Tổng quan & cập nhật thuế và chuyển bài cập nhật nhiều sắc thuế vào đó để số đếm chuyên mục con rõ ràng. Giao diện có nhóm mở/thu gọn, đường dẫn nhóm mẹ, breadcrumb và chọn nhóm khi tạo/sửa.
 
 005 thu hồi quyền đọc cả bảng/cột của PUBLIC và anon; thay chính sách SELECT theo vai trò thành viên và kiểm tra danh tính trong mọi RPC trả nội dung. Tài khoản Auth ẩn danh không được coi là thành viên. Các quyền sửa/tác giả và bảo mật 003/004 vẫn được giữ. Đăng nhập/đăng ký Google và email, quên/đặt lại mật khẩu và privacy.html vẫn công khai.
 
 Client không tải dữ liệu forum khi là khách. Đăng xuất, sự kiện đăng xuất từ tab khác, hết phiên và đổi tài khoản đều xóa cache; phản hồi đang tải dở không được phục hồi cache cũ. Đăng xuất dùng scope local để giữ phiên ở các thiết bị khác. Deep link được đưa qua đăng nhập rồi trở lại nội dung.
 
-Áp dụng **migration 005, rồi 006** trên production đã có 001–004; không chạy lại schema ban đầu. Migration có transaction, áp dụng lặp được. Sau đó triển khai frontend mới, kiểm tra API khách bị chặn, thành viên đọc được và giao diện điện thoại. Không đưa khóa bí mật vào quá trình này.
+Áp dụng **migration 005, 006, rồi 007** trên production đã có 001–004; không chạy lại schema ban đầu. Migration có transaction, áp dụng lặp được. Sau đó triển khai frontend mới, kiểm tra API khách bị chặn, thành viên đọc được và giao diện điện thoại. Không đưa khóa bí mật vào quá trình này.
 
 Phần biểu mẫu chưa có storage/viewer/upload/download. Thiết kế triển khai tiếp nằm trong [docs/RESOURCES_DESIGN.md](docs/RESOURCES_DESIGN.md); chỉ phát hành file được Zin duyệt riêng.
