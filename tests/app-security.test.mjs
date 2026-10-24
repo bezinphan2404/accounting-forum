@@ -27,10 +27,20 @@ test('UI renders without executable attributes or global handlers and delegated 
  code=code.replace("import logoUrl from '../assets/logo.svg';","const logoUrl='/logo.svg';");
  code=code.replace(/import \{([^}]+)\} from '\.\/remote-data\.js';/g,'const {$1}=globalThis.__appTestAPI;');
  code=code.replace("'./safe-markdown.js'",JSON.stringify(new URL('../js/safe-markdown.js',import.meta.url).href));
+ code=code.replace("'./article-watermark.js'",JSON.stringify(new URL('../js/article-watermark.js',import.meta.url).href));
+ code=code.replace("'./community-tools.js'",JSON.stringify(new URL('../js/community-tools.js',import.meta.url).href));
  await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));
  w.document.dispatchEvent(new w.Event('DOMContentLoaded'));
  const settle=()=>new Promise(r=>setTimeout(r,20));await settle();
  assert.ok(w.document.querySelector('.thread-card'));assert.ok(w.document.body.textContent.includes(thread.title));
+ assert.ok(w.document.getElementById('community-tools'));assert.equal(w.document.querySelector('.module-nav'),null);
+ w.document.querySelector('[data-action="community-ai"]').click();await settle();
+ assert.equal(w.location.hash,'#/');assert.equal(w.document.querySelector('.community-panel').hidden,false);
+ w.document.getElementById('community-question').value='GTGT';
+ w.document.querySelector('[data-tool="search"]').click();await settle();assert.ok(w.document.querySelector('.community-result a'));
+ w.document.querySelector('[data-action="community-feedback"]').click();await settle();assert.ok(w.document.getElementById('community-feedback-content'));
+ w.document.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert.equal(w.document.querySelector('.community-panel').hidden,true);
+
  assert.equal(w.document.querySelectorAll('script,[onclick],[onsubmit],[onkeydown],svg[onload],img[onerror]').length,0);
  for(const name of ['handleLogin','handleReply','handleAdminReply','navigate','previewPost'])assert.equal(w[name],undefined);
  w.location.hash='#/login';await settle();
@@ -58,6 +68,11 @@ test('UI renders without executable attributes or global handlers and delegated 
  w.location.hash='#/ai';await settle();w.document.querySelector('[data-mode="edit"]').click();await settle();
  w.document.getElementById('ai-input').value='Public editorial draft';w.document.getElementById('ai-consent').checked=true;
  w.document.querySelector('form[data-submit="handleAI"]').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await settle();assert.equal(calls.filter(c=>c[0]==='ai-ask').at(-1)[1].mode,'edit');assert.ok(w.document.querySelector('.ai-answer'));assert.equal(w.document.querySelectorAll('.ai-answer script').length,0);
+ // The reader mark exists on article content, not editor/AI input, and clears on navigation.
+ w.location.hash='#/thread/'+id;await settle();
+ assert.equal(w.document.querySelector('.article-watermark').dataset.memberCode,'TV-111111111111');
+ assert.equal(w.document.querySelector('.article-watermark').getAttribute('aria-hidden'),'true');
+ w.location.hash='#/new-thread';await settle();assert.equal(w.document.querySelector('.article-watermark'),null);
  // Signout arrives while a detail request is still pending.
  finishDetail=true;w.location.hash='#/thread/'+id;await settle();assert.equal(typeof finishDetail,'function');
  signedIn=false;w.dispatchEvent(new w.Event('bz-auth-cleared'));finishDetail(thread);await settle();
@@ -82,6 +97,8 @@ test('guest deep links render login without fetching any forum content',async()=
  globalThis.__appTestAPI={getCurrentUser:async()=>null,isPasswordRecovery:()=>false,authCallbackError:'',refreshData:async()=>reads++,loadThreadDetail:async()=>reads++,clearForumData:()=>{}};
  let code=await readFile(new URL('../js/app.js',import.meta.url),'utf8');
  code=code.replace("import logoUrl from '../assets/logo.svg';","const logoUrl='/logo.svg';").replace(/import \{([^}]+)\} from '\.\/remote-data\.js';/g,'const {$1}=globalThis.__appTestAPI;').replace("'./safe-markdown.js'",JSON.stringify(new URL('../js/safe-markdown.js',import.meta.url).href));
+ code=code.replace("'./article-watermark.js'",JSON.stringify(new URL('../js/article-watermark.js',import.meta.url).href));
+ code=code.replace("'./community-tools.js'",JSON.stringify(new URL('../js/community-tools.js',import.meta.url).href));
  await import('data:text/javascript;base64,'+Buffer.from(code+'\n//guest').toString('base64'));
  w.document.dispatchEvent(new w.Event('DOMContentLoaded'));await new Promise(r=>setTimeout(r,20));
  assert.equal(reads,0);assert.equal(w.location.hash,'#/login');assert.ok(w.document.querySelector('#login-email'));assert.equal(w.document.querySelector('#search-input'),null);

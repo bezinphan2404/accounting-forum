@@ -1,4 +1,6 @@
 import logoUrl from '../assets/logo.svg';
+import { mountArticleWatermark } from './article-watermark.js';
+import { renderCommunityToolsShell, openCommunityToolsPanel, closeCommunityToolsPanel } from './community-tools.js';
 // ====================================
 // BZ Accounting Forum – Main Application
 // SPA with hash-based routing
@@ -206,8 +208,12 @@ function renderHeader() {
         </div>
       </div>
     </header>
-    ${currentUser ? `<nav class="module-nav" aria-label="Tiện ích diễn đàn"><a href="#/">Kiến thức</a><a href="#/ai" ${getRoute()==='#/ai'?'aria-current="page"':''}>✦ Trợ lý AI</a><a href="#/feedback" ${getRoute()==='#/feedback'?'aria-current="page"':''}>Góp ý</a></nav>` : ''}
+    ${currentUser && !publicRoutes.has(getRoute()) ? renderCommunityToolsShell(logoUrl) : ''}
   `;
+}
+
+function openCommunityTool(kind) {
+  return openCommunityToolsPanel(document.getElementById('community-tools'), {kind,viewer:currentUser,getViewer:()=>currentUser,api:{getAIStatus,findAIArticles,askAI,createFeedback},renderMarkdown});
 }
 
 function renderAuthButtons() {
@@ -525,6 +531,7 @@ function renderThread(threadId) {
     </div>
     ${renderFooter()}
   `;
+  mountArticleWatermark(app.querySelector('.thread-detail-content'), currentUser);
 }
 
 // ====================================================================
@@ -1019,12 +1026,12 @@ document.addEventListener('submit',event=>{
  const form=event.target;if(!Object.hasOwn(formHandlers,form.dataset.submit))return;const handler=formHandlers[form.dataset.submit];
  event.preventDefault();void perform(form,()=>handler(event,form.dataset.id));
 });
-document.addEventListener('keydown',event=>{if(event.key==='Enter' && event.target.matches('[data-search]')){event.preventDefault();handleSearch();}});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'){closeCommunityToolsPanel(document.getElementById('community-tools'));return;}if(event.key==='Enter' && event.target.matches('[data-search]')){event.preventDefault();handleSearch();}});
 document.addEventListener('click',event=>{
  const el=event.target.closest('[data-action],[data-route]');if(!el || el.disabled)return;
  event.preventDefault();
  if(el.dataset.route){navigate(el.dataset.route);return;}
- const actions={'ai-mode':()=>{++aiRequestNumber;aiMode=el.dataset.mode==='edit' && currentUser?.role==='admin'?'edit':'ask';aiPrompt='';aiResult=null;aiRelated=[];renderAI();},'ai-search':handleAISearch,retry:()=>router(),back:()=>history.back(),menu:toggleDropdown,preview:previewPost,logout:handleLogout,google:()=>handleGoogleLogin({currentTarget:el}),sort:()=>changeSort(el.dataset.sort),like:()=>handleLike(el.dataset.id),
+ const actions={'community-ai':()=>openCommunityTool('ai'),'community-feedback':()=>openCommunityTool('feedback'),'community-close':()=>closeCommunityToolsPanel(document.getElementById('community-tools')),'ai-mode':()=>{++aiRequestNumber;aiMode=el.dataset.mode==='edit' && currentUser?.role==='admin'?'edit':'ask';aiPrompt='';aiResult=null;aiRelated=[];renderAI();},'ai-search':handleAISearch,retry:()=>router(),back:()=>history.back(),menu:toggleDropdown,preview:previewPost,logout:handleLogout,google:()=>handleGoogleLogin({currentTarget:el}),sort:()=>changeSort(el.dataset.sort),like:()=>handleLike(el.dataset.id),
  'next-page':()=>{listOffset+=20;return router();},'previous-page':()=>{listOffset=Math.max(0,listOffset-20);return router();},
  'more-replies':async()=>{await loadThreadDetail(el.dataset.id,getReplies(el.dataset.id).length);renderThread(el.dataset.id);}};
  if(Object.hasOwn(actions,el.dataset.action))void perform(el,actions[el.dataset.action]);
