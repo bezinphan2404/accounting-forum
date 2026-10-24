@@ -19,8 +19,9 @@ const ICONS = {
 };
 
 import { getDB, getCategories, getCategoryById, getThreadCountByCategory, getUsers, getUserById, createUser, authenticateUser, getThreads, getThreadById, createThread, incrementViews, toggleLike, getReplies, createReply, getReplyCount, getStats } from './remote-data.js';
-import { refreshData, getCurrentUser, clearForumData, signInWithGoogle, signOut, updateThread, updateReply, isPasswordRecovery, authCallbackError, sendPasswordReset, completePasswordReset, loadThreadPage, loadThreadDetail, loadAdminReplies, loadProfile, getPageInfo } from './remote-data.js';
+import { refreshData, getCurrentUser, clearForumData, signInWithGoogle, signOut, updateThread, updateReply, isPasswordRecovery, authCallbackError, sendPasswordReset, completePasswordReset, loadThreadPage, loadThreadDetail, loadAdminReplies, loadProfile, getPageInfo, loadFeedbackPage, getFeedbackPage, createFeedback, updateFeedback, getAIStatus, askAI, findAIArticles } from './remote-data.js';
 let currentUser = null;
+let aiRequestNumber=0;let aiMode='ask';let aiStatus={ready:false};let aiResult=null;let aiRelated=[];let aiPrompt='';
 
 function setCurrentUser(user) {
   currentUser = user;
@@ -83,7 +84,7 @@ let listOffset=0;
 let previousRoute='';
 const publicRoutes=new Set(['#/login','#/register','#/forgot-password','#/reset-password']);
 function rememberDestination(hash) {
-  if(/^#\/(?:$|(?:category|thread|profile|edit)\/[a-z0-9-]+$|new-thread$|admin$|search\?q=)/i.test(hash) && hash.length<=500)sessionStorage.setItem('bz_return_to',hash);
+  if(/^#\/(?:$|(?:category|thread|profile|edit)\/[a-z0-9-]+$|new-thread$|admin$|ai$|feedback$|search\?q=)/i.test(hash) && hash.length<=500)sessionStorage.setItem('bz_return_to',hash);
 }
 function loginDestination() {
   const saved=sessionStorage.getItem('bz_return_to');sessionStorage.removeItem('bz_return_to');
@@ -105,7 +106,7 @@ async function router() {
       if(version!==routeVersion)return;
       setCurrentUser(user);
       if(!user){clearForumData();showMemberLogin();return;}
-      if(!getCategories().length)await refreshData();
+      await refreshData();
       if(version!==routeVersion)return;
     }
     if(hash.startsWith('#/thread/') || hash.startsWith('#/edit/')) {
@@ -114,6 +115,10 @@ async function router() {
     } else if(hash.startsWith('#/profile/')) {
       const id=hash.split('/')[2];if(!/^[0-9a-f-]{36}$/i.test(id))throw Error('Đường dẫn không hợp lệ.');
       await loadThreadPage({authorId:id,offset:listOffset});await loadProfile(id);
+    } else if(hash==='#/feedback') {
+      await loadFeedbackPage(listOffset);
+    } else if(hash==='#/ai') {
+      aiStatus=await getAIStatus();
     } else if(hash==='#/admin') {
       if(currentUser?.role!=='admin'){navigate('#/');return;}
       await loadThreadPage({offset:listOffset});await loadAdminReplies();
@@ -140,6 +145,10 @@ async function router() {
   } else if (hash.startsWith('#/thread/')) {
     const threadId = hash.replace('#/thread/', '');
     renderThread(threadId);
+  } else if (hash === '#/feedback') {
+    renderFeedback();
+  } else if (hash === '#/ai') {
+    renderAI();
   } else if (hash === '#/admin') {
     renderAdmin();
   } else if (hash.startsWith('#/edit/')) {
@@ -197,6 +206,7 @@ function renderHeader() {
         </div>
       </div>
     </header>
+    ${currentUser ? `<nav class="module-nav" aria-label="Tiện ích diễn đàn"><a href="#/">Kiến thức</a><a href="#/ai" ${getRoute()==='#/ai'?'aria-current="page"':''}>✦ Trợ lý AI</a><a href="#/feedback" ${getRoute()==='#/feedback'?'aria-current="page"':''}>Góp ý</a></nav>` : ''}
   `;
 }
 
@@ -469,7 +479,7 @@ function renderThread(threadId) {
           <div class="thread-detail-content card card-elevated">
             <div class="content-body">${renderMarkdown(thread.content)}</div>
             <div style="margin-top: var(--space-lg); display:flex; gap:var(--space-sm); flex-wrap:wrap;">
-              ${thread.tags.slice(0,10).map(tag => `<span class="thread-tag" style="background: rgba(69,123,157,0.7)">#${escapeHtml(tag)}</span>`).join('')}
+              ${thread.tags.map(tag => `<span class="thread-tag" style="background: rgba(69,123,157,0.7)">#${escapeHtml(tag)}</span>`).join('')}
             </div>
           </div>
 
@@ -537,7 +547,7 @@ function renderNewThread() {
           <form data-submit="handleNewThread">
             <div class="form-group">
               <label class="form-label">Tiêu đề *</label>
-              <input type="text" class="form-input" id="thread-title" placeholder="Nhập tiêu đề bài viết..." maxlength="300" required>
+              <input type="text" class="form-input" id="thread-title" placeholder="Nhập tiêu đề bài viết..." required>
             </div>
 
             <div class="form-group">
@@ -550,13 +560,12 @@ function renderNewThread() {
 
             <div class="form-group">
               <label class="form-label">Nội dung *</label>
-              <textarea class="form-textarea" id="thread-content" placeholder="Viết nội dung bài viết...\n\nMẹo: Dùng **chữ đậm** và - để tạo danh sách" maxlength="50000" required style="min-height:200px;"></textarea>
+              <textarea class="form-textarea" id="thread-content" placeholder="Viết nội dung bài viết...\n\nMẹo: Dùng **chữ đậm** và - để tạo danh sách" required style="min-height:200px;"></textarea>
             </div>
 
             <div class="form-group">
               <label class="form-label">Thẻ tags</label>
-              <input type="text" class="form-input" id="thread-tags" maxlength="2048" aria-describedby="thread-tags-help" placeholder="Nhập các tag cách nhau bởi dấu phẩy (VD: thuế, TNCN, hướng dẫn)">
-              <p id="thread-tags-help" class="form-subtitle">Tối đa 10 thẻ, mỗi thẻ tối đa 50 ký tự.</p>
+              <input type="text" class="form-input" id="thread-tags" placeholder="Nhập các tag cách nhau bởi dấu phẩy (VD: thuế, TNCN, hướng dẫn)">
             </div>
 
             <div class="form-actions">
@@ -840,7 +849,7 @@ async function handleLike(threadId) {
 // ===== INIT =====
 let initialized=false;
 window.addEventListener('bz-auth-cleared',()=>{
-  ++routeVersion;setCurrentUser(null);
+  ++routeVersion;++aiRequestNumber;setCurrentUser(null);aiPrompt='';aiResult=null;aiRelated=[];aiStatus={ready:false};aiMode='ask';
   document.querySelectorAll('.article-preview-dialog').forEach(dialog=>dialog.remove());
   if(initialized) {
     // Keep public recovery/registration pages usable; remove private DOM immediately.
@@ -943,7 +952,61 @@ function renderPagination() {
  const {offset,total}=getPageInfo();
  return `<nav aria-label="Phân trang" style="display:flex;gap:12px;margin-top:20px"><button class="btn btn-outline" data-action="previous-page" ${offset===0?'disabled':''}>Trang trước</button><span>Trang ${Math.floor(offset/20)+1} · ${total} bài</span><button class="btn btn-outline" data-action="next-page" ${offset+20>=total?'disabled':''}>Trang sau</button></nav>`;
 }
-const formHandlers={handleLogin,handleRegister,handleNewThread,handleReply,handleEditThread,handleAdminReply,handleForgotPassword,handleResetPassword};
+
+// ===== Member modules =====
+const feedbackKinds={idea:'Đề xuất tính năng',bug:'Báo lỗi',content:'Góp ý nội dung'};
+const feedbackStatuses={new:'Mới gửi',reviewing:'Đang xem xét',planned:'Dự kiến thực hiện',done:'Đã xử lý',declined:'Chưa thực hiện',hidden:'Đã ẩn'};
+function renderFeedback() {
+ const {items,total,offset}=getFeedbackPage();
+ document.getElementById('app').innerHTML=`${renderHeader()}<main class="module-page"><div class="module-heading"><span class="module-kicker">Cùng xây dựng BZ Forum</span><h1>Góp ý cho diễn đàn</h1><p>Đề xuất tính năng, báo lỗi hoặc góp ý nội dung. Góp ý và phản hồi của admin được các thành viên đã đăng nhập cùng xem.</p></div>
+ <section class="card module-card"><h2>Gửi góp ý</h2><form data-submit="handleFeedback"><div class="form-group"><label class="form-label" for="feedback-kind">Loại góp ý</label><select class="form-select" id="feedback-kind">${Object.entries(feedbackKinds).map(([id,name])=>`<option value="${id}">${name}</option>`).join('')}</select></div>
+ <div class="form-group"><label class="form-label" for="feedback-title">Tiêu đề</label><input class="form-input" id="feedback-title" required maxlength="150" placeholder="Bạn muốn cải thiện điều gì?"></div>
+ <div class="form-group"><label class="form-label" for="feedback-content">Nội dung</label><textarea class="form-textarea" id="feedback-content" required maxlength="4000" placeholder="Mô tả rõ ý tưởng hoặc các bước gặp lỗi. Không đưa thông tin riêng tư lên góp ý công khai."></textarea></div><button class="btn btn-primary" type="submit">Gửi góp ý</button></form></section>
+ <section aria-label="Các góp ý"><div class="content-header"><h2>${total} góp ý</h2><button class="btn btn-outline btn-sm" data-action="retry">Làm mới</button></div>${items.length?items.map(f=>`<article class="card module-card feedback-card"><div class="feedback-meta"><span>${escapeHtml(feedbackKinds[f.kind] || 'Góp ý')}</span><span class="feedback-status">${escapeHtml(feedbackStatuses[f.status] || f.status)}</span></div><h3>${escapeHtml(f.title)}</h3><p class="feedback-byline">${escapeHtml(f.author_name)} · ${formatDate(f.created_at)}</p><div class="feedback-body">${escapeHtml(f.content)}</div>${f.admin_response?`<div class="admin-response"><strong>Phản hồi từ BZ Forum</strong><p class="feedback-body">${escapeHtml(f.admin_response)}</p></div>`:''}
+ ${currentUser?.role==='admin'?`<details class="feedback-admin"><summary>Cập nhật phản hồi</summary><form data-submit="handleFeedbackAdmin" data-id="${escapeHtml(f.id)}"><label class="form-label">Trạng thái<select class="form-select" name="status">${Object.entries(feedbackStatuses).map(([id,name])=>`<option value="${id}" ${id===f.status?'selected':''}>${name}</option>`).join('')}</select></label><label class="form-label">Phản hồi công khai<textarea class="form-textarea" name="response" maxlength="4000">${escapeHtml(f.admin_response)}</textarea></label><button type="submit" class="btn btn-outline">Lưu phản hồi</button></form></details>`:''}</article>`).join(''):'<div class="card module-card empty-state"><h3>Diễn đàn đang lắng nghe</h3><p>Gửi góp ý đầu tiên để cùng cải thiện BZ Forum.</p></div>'}
+ <nav class="module-pagination" aria-label="Phân trang góp ý"><button class="btn btn-outline" data-action="previous-page" ${offset===0?'disabled':''}>Trang trước</button><span>Trang ${Math.floor(offset/20)+1}</span><button class="btn btn-outline" data-action="next-page" ${offset+20>=total?'disabled':''}>Trang sau</button></nav></section></main>${renderFooter()}`;
+}
+async function handleFeedback(event) {
+ event.preventDefault();const form=event.target;const button=form.querySelector('button');button.disabled=true;
+ const payload={kind:form.querySelector('#feedback-kind').value,title:form.querySelector('#feedback-title').value.trim(),content:form.querySelector('#feedback-content').value.trim()};
+ if(!payload.title || !payload.content){button.disabled=false;showToast('Vui lòng nhập tiêu đề và nội dung.','error');return;}
+ try{await createFeedback(payload);listOffset=0;if(getRoute()==='#/feedback')renderFeedback();showToast('Đã gửi góp ý. Cảm ơn bạn!');}finally{button.disabled=false;}
+}
+async function handleFeedbackAdmin(event,id) {
+ event.preventDefault();const form=event.target;const button=form.querySelector('button');button.disabled=true;
+ try{await updateFeedback(id,form.elements.status.value,form.elements.response.value.trim());if(getRoute()==='#/feedback')renderFeedback();showToast('Đã cập nhật phản hồi.');}finally{button.disabled=false;}
+}
+function renderAISources(rows) {
+ return rows.length?`<section class="ai-sources"><h3>Bài viết để đối chiếu</h3><ul>${rows.map(s=>`<li><a href="#/thread/${escapeHtml(s.id)}">${escapeHtml(s.title)}</a></li>`).join('')}</ul></section>`:'';
+}
+function renderAI() {
+ if(aiMode==='edit' && currentUser?.role!=='admin')aiMode='ask';
+ document.getElementById('app').innerHTML=`${renderHeader()}<main class="module-page ai-page"><div class="module-heading"><span class="module-kicker">Có nguồn để kiểm tra</span><h1>Trợ lý AI của BZ Forum</h1><p>Hỏi từ kiến thức đang có trên diễn đàn${currentUser?.role==='admin'?' hoặc cùng AI rà bản nháp trước khi đăng':''}.</p></div>
+ <div class="ai-mode-tabs" role="group" aria-label="Chế độ AI"><button class="btn ${aiMode==='ask'?'btn-primary':'btn-outline'}" data-action="ai-mode" data-mode="ask">Hỏi đáp kiến thức</button>${currentUser?.role==='admin'?`<button class="btn ${aiMode==='edit'?'btn-primary':'btn-outline'}" data-action="ai-mode" data-mode="edit">Hỗ trợ biên tập</button>`:''}</div>
+ ${!aiStatus.ready?`<div class="ai-notice" role="status"><strong>AI đang chờ kết nối dịch vụ miễn phí.</strong><p>Bạn vẫn có thể tìm bài liên quan ngay bên dưới.${currentUser?.role==='admin'?' Quản trị viên cần tự cấu hình khóa Gemini trên máy chủ để bật trả lời AI.':''}</p></div>`:''}
+ <section class="card module-card"><form data-submit="handleAI"><label class="form-label" for="ai-input">${aiMode==='edit'?'Bản nháp và yêu cầu biên tập':'Câu hỏi hoặc từ khóa'}</label><textarea class="form-textarea ai-input" id="ai-input" required maxlength="${aiMode==='edit'?12000:3000}" placeholder="${aiMode==='edit'?'Dán bản nháp kiến thức chung và nêu điều muốn rà: cách diễn đạt, bố cục, các điểm cần kiểm chứng...':'Ví dụ: Thuế GTGT nông sản ở khâu thương mại được xử lý thế nào?'}">${escapeHtml(aiPrompt)}</textarea>
+ <p class="ai-data-note">Khi chọn gửi AI, câu hỏi/bản nháp và trích đoạn bài liên quan được gửi tới Google Gemini. <a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noopener noreferrer">Gói miễn phí có thể sử dụng nội dung để cải thiện sản phẩm</a>. Không nhập dữ liệu cá nhân, công ty hoặc tài liệu nội bộ.</p>
+ <label class="ai-consent"><input type="checkbox" id="ai-consent"> Nội dung này phù hợp gửi tới dịch vụ AI miễn phí.</label><div class="form-actions"><button type="button" class="btn btn-outline" data-action="ai-search">Tìm bài liên quan</button><button type="submit" class="btn btn-primary" ${aiStatus.ready?'':'disabled'}>${aiMode==='edit'?'Nhờ AI rà bản nháp':'Gửi câu hỏi cho AI'}</button></div><p class="ai-data-note">Hạn mức thử nghiệm: ${currentUser?.role==='admin'?10:5} yêu cầu/ngày cho tài khoản này; toàn diễn đàn tối đa 20 yêu cầu/ngày. Hạn mức của dịch vụ miễn phí có thể thấp hơn.</p><p id="ai-message" role="status"></p></form></section>
+ ${aiResult?`<section class="card module-card ai-answer"><span class="module-kicker">${aiResult.generated?'Nội dung do AI gợi ý':'Kết quả tra cứu'}</span><div class="content-body">${renderMarkdown(aiResult.answer)}</div>${renderAISources(aiResult.sources || [])}<p class="ai-data-note">${aiMode==='edit'?'Đây là gợi ý biên tập. Zin cần kiểm tra nguồn và duyệt nội dung trước khi đăng.':'Đối chiếu nguồn trong bài và thời điểm áp dụng trước khi dùng cho hồ sơ thực tế.'}</p></section>`:renderAISources(aiRelated)}
+ </main>${renderFooter()}`;
+}
+async function handleAISearch() {
+ aiPrompt=document.getElementById('ai-input')?.value.trim() || '';
+ if(!aiPrompt){showToast('Nhập câu hỏi hoặc từ khóa để tìm bài.','info');return;}
+ const request=++aiRequestNumber;const related=await findAIArticles(aiPrompt);if(request!==aiRequestNumber)return;aiRelated=related;aiResult=null;
+ if(getRoute()==='#/ai'){renderAI();if(!aiRelated.length)document.getElementById('ai-message').textContent='Chưa tìm thấy bài phù hợp. Thử từ khóa ngắn hơn hoặc gửi câu hỏi ở Hỏi đáp.';}
+}
+async function handleAI(event) {
+ event.preventDefault();const form=event.target;const message=form.querySelector('#ai-message');
+ aiPrompt=form.querySelector('#ai-input').value.trim();
+ if(!aiPrompt){message.textContent='Vui lòng nhập nội dung.';return;}
+ if(!form.querySelector('#ai-consent').checked){message.textContent='Hãy xác nhận nội dung phù hợp gửi tới dịch vụ AI miễn phí.';return;}
+ const request=++aiRequestNumber;const button=form.querySelector('button[type="submit"]');button.disabled=true;message.textContent='AI đang đọc các nguồn liên quan...';
+ try{const result=await askAI({mode:aiMode,prompt:aiPrompt,consent:true});if(getRoute()!=='#/ai' || request!==aiRequestNumber)return;aiResult=result;aiRelated=[];renderAI();}
+ catch(error){if(getRoute()==='#/ai')message.textContent=friendlyError(error);}finally{button.disabled=false;}
+}
+
+const formHandlers={handleLogin,handleRegister,handleNewThread,handleReply,handleEditThread,handleAdminReply,handleForgotPassword,handleResetPassword,handleFeedback,handleFeedbackAdmin,handleAI};
 const pending=new WeakSet();
 async function perform(element,action) {
  if(pending.has(element))return;
@@ -960,7 +1023,7 @@ document.addEventListener('click',event=>{
  const el=event.target.closest('[data-action],[data-route]');if(!el || el.disabled)return;
  event.preventDefault();
  if(el.dataset.route){navigate(el.dataset.route);return;}
- const actions={retry:()=>router(),back:()=>history.back(),menu:toggleDropdown,preview:previewPost,logout:handleLogout,google:()=>handleGoogleLogin({currentTarget:el}),sort:()=>changeSort(el.dataset.sort),like:()=>handleLike(el.dataset.id),
+ const actions={'ai-mode':()=>{++aiRequestNumber;aiMode=el.dataset.mode==='edit' && currentUser?.role==='admin'?'edit':'ask';aiPrompt='';aiResult=null;aiRelated=[];renderAI();},'ai-search':handleAISearch,retry:()=>router(),back:()=>history.back(),menu:toggleDropdown,preview:previewPost,logout:handleLogout,google:()=>handleGoogleLogin({currentTarget:el}),sort:()=>changeSort(el.dataset.sort),like:()=>handleLike(el.dataset.id),
  'next-page':()=>{listOffset+=20;return router();},'previous-page':()=>{listOffset=Math.max(0,listOffset-20);return router();},
  'more-replies':async()=>{await loadThreadDetail(el.dataset.id,getReplies(el.dataset.id).length);renderThread(el.dataset.id);}};
  if(Object.hasOwn(actions,el.dataset.action))void perform(el,actions[el.dataset.action]);

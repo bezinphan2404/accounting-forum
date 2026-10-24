@@ -15,7 +15,7 @@ async function fixture({user={id},profileDelay=null,detailDelay=null}={}) {
   q.then=(resolve,reject)=>Promise.resolve(resultFor(table)).then(resolve,reject);return q;
  };
  const rawThread={id,author_id:id,category_id:'cat-1',title:'Private',content:'Member-only text',created_at:new Date().toISOString()};
- globalThis.__cacheTestClient=()=>({auth:{onAuthStateChange:cb=>{authCallback=cb;},getUser:async()=>({data:{user},error:null}),signOut:async opts=>{calls.push(['signOut',opts]);return {error:null};}},
+ globalThis.__cacheTestClient=()=>({auth:{onAuthStateChange:cb=>{authCallback=cb;},getUser:async()=>({data:{user},error:null}),getSession:async()=>({data:{session:{user:{id},access_token:'synthetic-session'}},error:null}),signOut:async opts=>{calls.push(['signOut',opts]);return {error:null};}},
  from:table=>{calls.push(['table',table]);return chain(table);},rpc:async(name)=>{
   calls.push(['rpc',name]);
   if(name==='forum_thread_detail')return detailDelay?detailDelay.promise:{data:rawThread,error:null};
@@ -64,4 +64,14 @@ test('expiry clears cached content when the SDK cannot refresh a session',async(
  const {api,auth,events}=await fixture();await api.getCurrentUser();await api.loadThreadDetail(id);
  auth('TOKEN_REFRESHED',{user:{id},expires_at:Date.now()/1000+.015});
  await new Promise(r=>setTimeout(r,35));assert.equal(api.getThreadById(id),undefined);assert.ok(events.includes('bz-auth-cleared'));
+});
+
+test('AI response body finishing after signout is discarded',async()=>{
+ const originalFetch=globalThis.fetch;const jsonDelay=deferred();
+ try {
+  globalThis.fetch=async()=>({ok:true,status:200,json:()=>jsonDelay.promise});
+  const {api,auth}=await fixture();await api.getCurrentUser();
+  const pending=api.askAI({mode:'ask',prompt:'GTGT',consent:true});await new Promise(r=>setTimeout(r,0));
+  auth('SIGNED_OUT',null);jsonDelay.resolve({generated:true,answer:'Private response'});await assert.rejects(pending,/đăng nhập/);
+ } finally {globalThis.fetch=originalFetch;}
 });

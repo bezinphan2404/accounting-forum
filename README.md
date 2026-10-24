@@ -45,3 +45,11 @@ Client không tải dữ liệu forum khi là khách. Đăng xuất, sự kiện
 Áp dụng **migration 005, 006, rồi 007** trên production đã có 001–004; không chạy lại schema ban đầu. Migration có transaction, áp dụng lặp được. Sau đó triển khai frontend mới, kiểm tra API khách bị chặn, thành viên đọc được và giao diện điện thoại. Không đưa khóa bí mật vào quá trình này.
 
 Phần biểu mẫu chưa có storage/viewer/upload/download. Thiết kế triển khai tiếp nằm trong [docs/RESOURCES_DESIGN.md](docs/RESOURCES_DESIGN.md); chỉ phát hành file được Zin duyệt riêng.
+
+## Góp ý và trợ lý AI
+
+Migration 008 bổ sung Góp ý công khai cho thành viên: gửi đề xuất/báo lỗi/góp ý nội dung, danh sách 20 mục/trang và phản hồi/trạng thái của admin. Khách và danh tính Auth anonymous không đọc được; thành viên không tự đổi tác giả, trạng thái hoặc phản hồi admin. Giới hạn 5 góp ý/giờ tại DB.
+
+Trợ lý AI có hai chế độ: thành viên hỏi từ nguồn bài forum; admin được hỗ trợ biên tập. Mọi yêu cầu qua `/api/ai` trên Vercel, kiểm tra Supabase Auth và quyền admin tại máy chủ. Chỉ gọi Gemini 3.5 Flash-Lite khi Zin tự cấu hình key, bật AI_ENABLED và xác nhận AI_FREE_TIER_CONFIRMED. Không có key trong client, không tự nâng billing hay đổi sang model trả phí. Giới hạn ở DB: 5 yêu cầu/ngày cho thành viên, 10 cho admin, 20 toàn forum; 3/phút toàn forum và 10 giây giữa hai lần của một tài khoản. Đây là số lần thử gọi.
+
+Khi chưa cấu hình, AI ghi rõ đang chờ kết nối; tìm bài liên quan vẫn hoạt động. Chưa thử câu trả lời mô hình thật nếu Zin chưa tự nhập key. Xem [hướng dẫn bật AI miễn phí](docs/AI_FREE_SETUP.md), gồm điều kiện Free Tier và cách Zin tự nhập key tại Vercel. Gemini miễn phí có điều khoản sử dụng dữ liệu để cải thiện sản phẩm; chỉ dùng kiến thức chung, không gửi dữ liệu riêng. AI không tự đăng bài.

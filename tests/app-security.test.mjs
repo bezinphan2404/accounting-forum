@@ -13,12 +13,14 @@ test('UI renders without executable attributes or global handlers and delegated 
  const thread={id,authorId:id,categoryId:child.id,createdAt:new Date().toISOString(),title:'" onclick="alert(1)',content:'### Tiêu đề\nNội dung',tags:['<img src=x>'],likes:1,replyCount:0};
  const user={id,name:'<script>bad</script>',avatar:'BZ',role:'member',joinDate:new Date().toISOString()};
  const calls=[];
- let signedIn=true;let finishDetail;let loginSuccess=false;
+ let signedIn=true;let finishDetail;let loginSuccess=false;let aiReady=false;
  const api={getDB:()=>({replies:[]}),getCategories:()=>categories,getCategoryById:key=>categories.find(c=>c.id===key),getThreadCountByCategory:()=>1,getUsers:()=>[user],getUserById:()=>user,
  getThreads:()=>[thread],getThreadById:()=>thread,getReplies:()=>[],getReplyCount:()=>0,getStats:()=>({threads:1,replies:0,users:1,categories:1}),
  getCurrentUser:async()=>signedIn?user:null,clearForumData:()=>{},refreshData:async()=>calls.push(['refresh']),loadThreadPage:async o=>calls.push(['page',o]),loadThreadDetail:async()=>{calls.push(['detail']);return finishDetail?new Promise(r=>finishDetail=r):thread;},loadProfile:async()=>calls.push(['profile']),loadAdminReplies:async()=>calls.push(['admin']),getPageInfo:()=>({offset:0,total:1}),
  isPasswordRecovery:()=>false,authCallbackError:'',signInWithGoogle:async()=>calls.push(['google']),
  authenticateUser:async()=>{if(loginSuccess){signedIn=true;return user;}throw Error('invalid login credentials');},createUser:async()=>({error:'email rate limit exceeded'}),
+ getFeedbackPage:()=>({items:[{id,author_name:user.name,author_id:id,kind:'idea',status:'new',title:'<script>feedback</script>',content:'Public feedback <img src=x onerror=bad()>',admin_response:'',created_at:new Date().toISOString()}],total:1,offset:0}),loadFeedbackPage:async o=>calls.push(['feedback-page',o]),createFeedback:async o=>calls.push(['feedback-create',o]),updateFeedback:async(...o)=>calls.push(['feedback-update',...o]),
+ getAIStatus:async()=>({ready:aiReady}),findAIArticles:async q=>{calls.push(['ai-search',q]);return [{id,title:'Source article'}];},askAI:async o=>{calls.push(['ai-ask',o]);return {generated:true,answer:'### Private AI draft\n<script>bad()</script>',sources:[{id,title:'Source article'}]};},
  signOut:async()=>{},updateThread:async()=>{},updateReply:async()=>{},sendPasswordReset:async()=>{},completePasswordReset:async()=>{},createThread:async()=>thread,incrementViews:()=>{},toggleLike:async()=>{},createReply:async()=>{}};
  globalThis.__appTestAPI=api;
  let code=await readFile(new URL('../js/app.js',import.meta.url),'utf8');
@@ -44,12 +46,24 @@ test('UI renders without executable attributes or global handlers and delegated 
  assert.ok(w.document.querySelector('.breadcrumb').textContent.includes('Chuyên mục con'));
  w.location.hash='#/new-thread';await settle();assert.equal(w.document.querySelectorAll('optgroup').length,2);assert.equal(w.document.querySelector('option[value="cat-1-child"]').textContent,'Chuyên mục con');
  w.location.hash='#/edit/'+id;await settle();assert.equal(w.document.querySelector('select[name="category"]').value,child.id);
+ w.location.hash='#/feedback';await settle();assert.ok(w.document.body.textContent.includes('Public feedback <img'));
+ assert.equal(w.document.querySelectorAll('.feedback-card script,.feedback-card img').length,0);
+ w.document.getElementById('feedback-title').value='Suggestion';w.document.getElementById('feedback-content').value='Test feedback';
+ w.document.querySelector('form[data-submit="handleFeedback"]').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await settle();assert.equal(calls.filter(c=>c[0]==='feedback-create').length,1);
+ w.location.hash='#/ai';await settle();assert.ok(w.document.body.textContent.includes('AI đang chờ kết nối'));assert.equal(w.document.querySelector('[data-mode="edit"]'),null);assert.ok(w.document.querySelector('button[type="submit"]').disabled);
+ w.document.getElementById('ai-input').value='GTGT';w.document.querySelector('[data-action="ai-search"]').click();await settle();assert.ok(w.document.querySelector('.ai-sources a'));
+ user.role='admin';aiReady=true;w.location.hash='#/feedback';await settle();assert.ok(w.document.querySelector('.feedback-admin'));
+ w.document.querySelector('select[name="status"]').value='planned';w.document.querySelector('textarea[name="response"]').value='Planned response';
+ w.document.querySelector('form[data-submit="handleFeedbackAdmin"]').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await settle();assert.equal(calls.filter(c=>c[0]==='feedback-update').at(-1)[2],'planned');
+ w.location.hash='#/ai';await settle();w.document.querySelector('[data-mode="edit"]').click();await settle();
+ w.document.getElementById('ai-input').value='Public editorial draft';w.document.getElementById('ai-consent').checked=true;
+ w.document.querySelector('form[data-submit="handleAI"]').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await settle();assert.equal(calls.filter(c=>c[0]==='ai-ask').at(-1)[1].mode,'edit');assert.ok(w.document.querySelector('.ai-answer'));assert.equal(w.document.querySelectorAll('.ai-answer script').length,0);
  // Signout arrives while a detail request is still pending.
  finishDetail=true;w.location.hash='#/thread/'+id;await settle();assert.equal(typeof finishDetail,'function');
  signedIn=false;w.dispatchEvent(new w.Event('bz-auth-cleared'));finishDetail(thread);await settle();
  assert.equal(w.location.hash,'#/login');assert.equal(w.document.querySelector('.thread-detail'),null);assert.ok(!w.document.body.textContent.includes(thread.title));
  const before=calls.length;
- for(const route of ['#/','#/thread/'+id,'#/category/cat-1','#/search?q=private','#/profile/'+id,'#/edit/'+id,'#/new-thread','#/admin']) {
+ for(const route of ['#/','#/thread/'+id,'#/category/cat-1','#/search?q=private','#/profile/'+id,'#/edit/'+id,'#/new-thread','#/admin','#/ai','#/feedback']) {
   w.location.hash=route;await settle();assert.equal(w.location.hash,'#/login');assert.equal(w.document.querySelector('.thread-card'),null);
  }
  assert.equal(calls.length,before);

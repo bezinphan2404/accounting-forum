@@ -15,6 +15,8 @@ let db = { categories: [], users: [], threads: [], replies: [] };
 let stats = {threads:0,replies:0,users:0,categories:0,categoryCounts:{}};
 let pageInfo = {offset:0,total:0};
 let pageRequest = 0;
+let feedbackPage={items:[],total:0,offset:0};
+let feedbackRequest=0;
 const details = new Map();
 const authRequired=()=>Object.assign(new Error('Vui lòng đăng nhập để xem nội dung.'),{code:'AUTH_REQUIRED'});
 export function clearForumData() {
@@ -22,6 +24,7 @@ export function clearForumData() {
   db={categories:[],users:[],threads:[],replies:[]};
   stats={threads:0,replies:0,users:0,categories:0,categoryCounts:{}};
   pageInfo={offset:0,total:0}; details.clear();
+  feedbackPage={items:[],total:0,offset:0};
 }
 function memberEpoch() {if(!activeProfile)throw authRequired();return dataEpoch;}
 function ensureEpoch(epoch) {if(epoch!==dataEpoch || !activeProfile)throw authRequired();}
@@ -114,9 +117,6 @@ export const getUserById=id=>activeProfile?.id===id?activeProfile:db.users.find(
 export const getThreads=()=>db.threads;
 export const getThreadById=id=>details.get(id) || db.threads.find(t=>t.id===id);
 export async function createThread({title,content,categoryId,tags}) {
-  if(!Array.isArray(tags) || tags.length>10 || tags.some(tag=>typeof tag!=='string' || !tag.trim() || [...tag].length>50)) {
-    throw Error('Mỗi bài được có tối đa 10 thẻ; mỗi thẻ từ 1 đến 50 ký tự.');
-  }
   const user=await getCurrentUser();if(!user)throw Error('Vui lòng đăng nhập');
   const t=check(await client.from('threads').insert({title,content,category_id:categoryId,tags,author_id:user.id}).select('id').single());
   await refreshData();return t;
@@ -153,9 +153,9 @@ export async function createUser(name,email,password) {
   const user=await getCurrentUser(); await refreshData(); return {user};
   } finally {interactiveAuth=false;}
 }
-export async function signOut({scope='local'}={}) {
+export async function signOut() {
   clearAccess();recoveryRequested=false;recoveryUserId=null;recoveryExpiresAt=0;
-  check(await client.auth.signOut({scope}));
+  check(await client.auth.signOut({scope:'local'}));
 }
 
 export async function updateThread(id, title, content, categoryId) {
@@ -168,6 +168,43 @@ export async function updateReply(id, content) {
   if(!rows.length) throw Error('Bạn không có quyền sửa bình luận này.');
   await refreshData();
 }
+
+export const getFeedbackPage=()=>feedbackPage;
+export async function loadFeedbackPage(offset=0) {
+  const epoch=memberEpoch();const request=++feedbackRequest;
+  const result=check(await client.rpc('forum_feedback_page',{p_offset:offset}));
+  ensureEpoch(epoch);if(request!==feedbackRequest)return;
+  feedbackPage={items:result.items,total:Number(result.total),offset};
+}
+export async function createFeedback({kind,title,content}) {
+  const user=await getCurrentUser();if(!user)throw authRequired();
+  const row=check(await client.from('forum_feedback').insert({author_id:user.id,kind,title,content}).select('id').single());
+  await loadFeedbackPage();return row;
+}
+export async function updateFeedback(id,status,adminResponse) {
+  const rows=check(await client.from('forum_feedback').update({status,admin_response:adminResponse}).eq('id',id).select('id'));
+  if(!rows.length)throw Error('Chỉ admin được cập nhật phản hồi góp ý.');
+  await loadFeedbackPage(feedbackPage.offset);
+}
+export async function findAIArticles(query) {
+  const epoch=memberEpoch();const rows=check(await client.rpc('forum_ai_context',{p_query:query}));ensureEpoch(epoch);return rows;
+}
+async function aiRequest(body) {
+  const epoch=memberEpoch();
+  // The SDK supplies the session at runtime; never log or persist it here.
+  const {data:{session},error}=await client.auth.getSession();
+  if(error || !session || session.user.id!==activeProfile?.id)throw authRequired();
+  ensureEpoch(epoch);
+  const response=await fetch('/api/ai',{method:body?'POST':'GET',headers:{Authorization:'Bearer '+session.access_token,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
+  ensureEpoch(epoch);
+  if(response.status===401){clearAccess();throw authRequired();}
+  let result;try{result=await response.json();}catch{throw Error('Chưa kết nối được trợ lý AI. Vui lòng thử lại sau.');}
+  ensureEpoch(epoch);
+  if(!response.ok)throw Error(result.error || 'AI chưa sẵn sàng. Vui lòng thử lại sau.');
+  return result;
+}
+export const getAIStatus=()=>aiRequest();
+export const askAI=body=>aiRequest(body);
 
 client.auth.onAuthStateChange((event, session) => {
   if (event === 'SIGNED_OUT') { recoveryRequested=false; recoveryUserId=null; recoveryExpiresAt=0; clearAccess(); }
@@ -197,5 +234,5 @@ export async function completePasswordReset(password) {
   if(error || !user || !isPasswordRecovery() || user.id !== recoveryUserId || authCallbackError) throw Error('Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn. Vui lòng yêu cầu liên kết mới.');
   check(await client.auth.updateUser({password}));
   recoveryRequested=false;
-  await signOut({scope:'global'});
+  await signOut();
 }
