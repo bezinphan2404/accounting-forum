@@ -108,3 +108,22 @@ test('Supabase anonymous identities are not treated as signed-in members',async(
   await assert.rejects(db.query('select public.forum_stats()'),/Vui lòng đăng nhập/);
  });
 });
+
+test('existing single-topic articles move into children without changing content or attribution; repeat is safe',async()=>{
+ const vat='0e522016-cd9b-4002-a022-1f8e9a931b43',insurance='1786c9d6-c5dc-4915-95ed-7774bfe91744';
+ await db.query(`insert into public.threads(id,author_id,category_id,title,content,tags) values
+ ($1,$3,'cat-2','Thuế GTGT nông sản, gỗ/măng và dược liệu sau Luật 149 — sơ đồ 3 cột','Original VAT content',array['GTGT']),
+ ($2,$3,'cat-8','BHXH và tiền lương 2026: đối tượng, mức đóng và checklist cho kế toán','Original insurance content',array['BHXH'])`,[vat,insurance,a]);
+ const preserved=async()=>(await db.query("select id,author_id,title,content,tags,created_at from public.threads order by id")).rows;
+ const before=await preserved();const migration=await readFile(new URL('../supabase/006_classify_existing_articles.sql',import.meta.url),'utf8');
+ await db.exec(migration);await db.exec(migration);
+ assert.deepEqual(await preserved(),before);
+ assert.equal((await db.query('select category_id from public.threads where id=$1',[vat])).rows[0].category_id,'cat-2-vat');
+ assert.equal((await db.query('select category_id from public.threads where id=$1',[insurance])).rows[0].category_id,'cat-8-insurance');
+ await as('authenticated',a,async()=>{
+  for(const category of ['cat-2','cat-2-vat']) {
+   const page=(await db.query('select public.forum_thread_page(p_category=>$1) p',[category])).rows[0].p;
+   assert.ok(page.items.some(t=>t.id===vat));
+  }
+ });
+});
