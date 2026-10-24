@@ -11,7 +11,7 @@ async function fixture({hash='',search='',user={id:'test-user'},updateError=null
     async getUser(){return {data:{user},error:null};},
     async resetPasswordForEmail(email,options){calls.push(['reset',email,options]);return {data:{},error:null};},
     async updateUser(value){calls.push(['update',value]);return {data:{},error:updateError};},
-    async signOut(){calls.push(['signOut']);return {data:{},error:null};}
+    async signOut(options){calls.push(['signOut',options]);return {data:{},error:null};}
   }});
   let code=await readFile(new URL('../js/remote-data.js',import.meta.url),'utf8');
   code=code.replace("import { createClient } from '@supabase/supabase-js';",'const createClient=globalThis.__testClient;');
@@ -30,7 +30,7 @@ test('recovery link without an authenticated session cannot change a password',a
 });
 test('valid recovery persists before signing out and consumes the recovery state',async()=>{
   const {module,calls}=await fixture({hash:'#type=recovery'});calls.callback('PASSWORD_RECOVERY',validSession());await module.completePasswordReset('test-only-password');
-  assert.deepEqual([...calls],[['update',{password:'test-only-password'}],['signOut']]);assert.equal(module.isPasswordRecovery(),false);
+  assert.deepEqual([...calls],[['update',{password:'test-only-password'}],['signOut',{scope:'global'}]]);assert.equal(module.isPasswordRecovery(),false);
 });
 test('expired callback is rejected even with an existing signed-in session',async()=>{
   const {module,calls}=await fixture({hash:'#error_code=otp_expired',search:'?recovery=1'});await assert.rejects(module.completePasswordReset('test-only-password'));assert.equal(calls.length,0);

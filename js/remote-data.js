@@ -114,6 +114,9 @@ export const getUserById=id=>activeProfile?.id===id?activeProfile:db.users.find(
 export const getThreads=()=>db.threads;
 export const getThreadById=id=>details.get(id) || db.threads.find(t=>t.id===id);
 export async function createThread({title,content,categoryId,tags}) {
+  if(!Array.isArray(tags) || tags.length>10 || tags.some(tag=>typeof tag!=='string' || !tag.trim() || [...tag].length>50)) {
+    throw Error('Mỗi bài được có tối đa 10 thẻ; mỗi thẻ từ 1 đến 50 ký tự.');
+  }
   const user=await getCurrentUser();if(!user)throw Error('Vui lòng đăng nhập');
   const t=check(await client.from('threads').insert({title,content,category_id:categoryId,tags,author_id:user.id}).select('id').single());
   await refreshData();return t;
@@ -150,9 +153,9 @@ export async function createUser(name,email,password) {
   const user=await getCurrentUser(); await refreshData(); return {user};
   } finally {interactiveAuth=false;}
 }
-export async function signOut() {
+export async function signOut({scope='local'}={}) {
   clearAccess();recoveryRequested=false;recoveryUserId=null;recoveryExpiresAt=0;
-  check(await client.auth.signOut({scope:'local'}));
+  check(await client.auth.signOut({scope}));
 }
 
 export async function updateThread(id, title, content, categoryId) {
@@ -194,5 +197,5 @@ export async function completePasswordReset(password) {
   if(error || !user || !isPasswordRecovery() || user.id !== recoveryUserId || authCallbackError) throw Error('Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn. Vui lòng yêu cầu liên kết mới.');
   check(await client.auth.updateUser({password}));
   recoveryRequested=false;
-  await signOut();
+  await signOut({scope:'global'});
 }
