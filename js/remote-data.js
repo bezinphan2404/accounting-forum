@@ -6,59 +6,102 @@ let recoveryUserId = null;
 let recoveryExpiresAt = 0;
 export const client = createClient('https://ywmgvpffyymrmceosqkk.supabase.co', 'sb_publishable_D0xop95jNtFsaabwo8M7qQ_vf3wDnbM');
 let activeProfile = null;
+let memberId = null;
+let dataEpoch = 0;
+let profileRequest = null;
+let interactiveAuth = false;
+let expiryTimer;
 let db = { categories: [], users: [], threads: [], replies: [] };
 let stats = {threads:0,replies:0,users:0,categories:0,categoryCounts:{}};
 let pageInfo = {offset:0,total:0};
+let pageRequest = 0;
 const details = new Map();
+const authRequired=()=>Object.assign(new Error('Vui lòng đăng nhập để xem nội dung.'),{code:'AUTH_REQUIRED'});
+export function clearForumData() {
+  dataEpoch++; activeProfile=null; memberId=null;
+  db={categories:[],users:[],threads:[],replies:[]};
+  stats={threads:0,replies:0,users:0,categories:0,categoryCounts:{}};
+  pageInfo={offset:0,total:0}; details.clear();
+}
+function memberEpoch() {if(!activeProfile)throw authRequired();return dataEpoch;}
+function ensureEpoch(epoch) {if(epoch!==dataEpoch || !activeProfile)throw authRequired();}
+function clearAccess() {
+  clearForumData();clearTimeout(expiryTimer);
+  window.dispatchEvent(new Event('bz-auth-cleared'));
+}
 const check = ({data,error}) => { if(error) throw error; return data; };
 const profile = p => ({...p, name:p.name || 'Thành viên', avatar:(p.name || 'TV').split(' ').map(s=>s[0]).join('').slice(0,2), role:p.role || 'member', joinDate:p.created_at});
 const thread = t => ({...t,authorId:t.author_id,categoryId:t.category_id,createdAt:t.created_at,views:0,pinned:false,likes:Number(t.likes || 0),replyCount:Number(t.reply_count || 0)});
 const reply = r => ({...r,threadId:r.thread_id,authorId:r.author_id,createdAt:r.created_at});
 async function loadProfiles(ids) {
+  const epoch=memberEpoch();
   const unique=[...new Set(ids.filter(Boolean))];
   if(!unique.length)return;
   const users=check(await client.rpc('forum_public_profiles',{p_ids:unique}));
+  ensureEpoch(epoch);
   const merged=new Map(db.users.map(p=>[p.id,p]));users.map(profile).forEach(p=>{merged.delete(p.id);merged.set(p.id,p);});
   db.users=[...merged.values()].slice(-150);
 }
 export async function refreshData() {
+  const epoch=memberEpoch();
   const [categories,counts]=await Promise.all([
-    client.from('categories').select('id,name,icon,color').order('id').limit(100), client.rpc('forum_stats')
+    client.from('categories').select('id,name,icon,color,parent_id,sort_order').order('sort_order').order('id').limit(200), client.rpc('forum_stats')
   ]);
+  ensureEpoch(epoch);
   db.categories=check(categories).map(c=>({...c,color:/^#[0-9a-f]{6}$/i.test(c.color)?c.color:'#457b9d'}));
   stats=check(counts);
 }
 export async function loadThreadPage({categoryId=null,search=null,authorId=null,sortBy='newest',offset=0}={}) {
+  const epoch=memberEpoch();
+  const request=++pageRequest;
   const result=check(await client.rpc('forum_thread_page',{p_category:categoryId,p_search:search,p_author:authorId,p_sort:sortBy,p_offset:offset,p_limit:20}));
+  ensureEpoch(epoch);
   const items=result.items.map(thread);
   await loadProfiles(items.map(t=>t.authorId).concat(authorId || []));
+  ensureEpoch(epoch);
+  if(request!==pageRequest)return;
   db.threads=items;pageInfo={offset,total:Number(result.total)};
 }
 export async function loadThreadDetail(id,offset=0) {
+  const epoch=memberEpoch();
   const [row,comments]=await Promise.all([
     client.rpc('forum_thread_detail',{p_id:id}),
     client.from('replies').select('id,thread_id,author_id,content,created_at').eq('thread_id',id).order('created_at').order('id').range(offset,offset+49)
   ]);
   const t=check(row);if(!t)return null;
   const rs=check(comments).map(reply);
+  ensureEpoch(epoch);
+  await loadProfiles([t.author_id,...rs.map(r=>r.authorId)]);
+  ensureEpoch(epoch);
   details.delete(id);details.set(id,thread(t));
   if(details.size>20)details.delete(details.keys().next().value);
   db.replies=offset===0 ? rs : [...db.replies.filter(r=>r.threadId===id),...rs];
-  await loadProfiles([t.author_id,...rs.map(r=>r.authorId)]);
   return details.get(id);
 }
 export async function loadAdminReplies() {
+  const epoch=memberEpoch();
   if(activeProfile?.role!=='admin') throw Error('Không có quyền quản trị.');
-  db.replies=check(await client.from('replies').select('id,thread_id,author_id,content,created_at').order('created_at',{ascending:false}).order('id').limit(50)).map(reply);
+  const rows=check(await client.from('replies').select('id,thread_id,author_id,content,created_at').order('created_at',{ascending:false}).order('id').limit(50));
+  ensureEpoch(epoch);db.replies=rows.map(reply);
 }
 export const getPageInfo=()=>pageInfo;
 export async function loadProfile(id) {await loadProfiles([id]);}
-export async function getCurrentUser() {
+export function getCurrentUser() {
+  if(profileRequest)return profileRequest;
+  const request=readCurrentUser();profileRequest=request;
+  return request.finally(()=>{if(profileRequest===request)profileRequest=null;});
+}
+async function readCurrentUser() {
+  const startingEpoch=dataEpoch;
   const {data:{user},error} = await client.auth.getUser();
-  if(error || !user) {activeProfile=null;return null;}
+  if(startingEpoch!==dataEpoch)return null;
+  if(error || !user || user.is_anonymous) {if(activeProfile)clearAccess();return null;}
+  if(memberId!==user.id){clearForumData();memberId=user.id;}
+  const epoch=dataEpoch;
   const p=check(await client.from('profiles').select('id,name,bio,created_at').eq('id',user.id).maybeSingle());
   if(!p) throw Error('Hồ sơ chưa sẵn sàng. Vui lòng thử lại.');
   const roles=check(await client.from('forum_roles').select('role').eq('user_id',user.id));
+  if(epoch!==dataEpoch)return null;
   activeProfile={...profile(p),role:roles[0]?.role || 'member'};
   return activeProfile;
 }
@@ -91,18 +134,26 @@ export async function createReply({threadId,content}) {
 export const getReplyCount=id=>getThreadById(id)?.replyCount || 0;
 export const getStats=()=>stats;
 export async function authenticateUser(email,password) {
-  check(await client.auth.signInWithPassword({email,password})); const user=await getCurrentUser(); await refreshData(); return user;
+  interactiveAuth=true;
+  try {check(await client.auth.signInWithPassword({email,password})); const user=await getCurrentUser(); await refreshData(); return user;}
+  finally {interactiveAuth=false;}
 }
 export async function signInWithGoogle() {
   check(await client.auth.signInWithOAuth({provider:'google', options:{redirectTo:window.location.origin + '/', queryParams:{prompt:'select_account'}}}));
 }
 export async function createUser(name,email,password) {
+  interactiveAuth=true;
+  try {
   const {data,error}=await client.auth.signUp({email,password,options:{data:{name}}});
   if(error) return {error:error.message};
   if(!data.session) return {confirmationRequired:true};
   const user=await getCurrentUser(); await refreshData(); return {user};
+  } finally {interactiveAuth=false;}
 }
-export async function signOut() {check(await client.auth.signOut()); activeProfile=null;recoveryRequested=false;recoveryUserId=null;recoveryExpiresAt=0;}
+export async function signOut() {
+  clearAccess();recoveryRequested=false;recoveryUserId=null;recoveryExpiresAt=0;
+  check(await client.auth.signOut({scope:'local'}));
+}
 
 export async function updateThread(id, title, content, categoryId) {
   const rows=check(await client.from('threads').update({title,content,category_id:categoryId}).eq('id',id).select('id'));
@@ -116,7 +167,17 @@ export async function updateReply(id, content) {
 }
 
 client.auth.onAuthStateChange((event, session) => {
-  if (event === 'SIGNED_OUT') { recoveryRequested=false; recoveryUserId=null; recoveryExpiresAt=0; }
+  if (event === 'SIGNED_OUT') { recoveryRequested=false; recoveryUserId=null; recoveryExpiresAt=0; clearAccess(); }
+  if(session?.user?.id && ['INITIAL_SESSION','SIGNED_IN','TOKEN_REFRESHED','PASSWORD_RECOVERY'].includes(event)) {
+    if(memberId && memberId!==session.user.id)clearAccess();
+    clearTimeout(expiryTimer);
+    if(session.expires_at) {
+      expiryTimer=setTimeout(clearAccess,Math.max(0,Math.min(session.expires_at*1000-Date.now(),2147483647)));
+      expiryTimer?.unref?.();
+    }
+    // Never await another Auth call inside the SDK callback (it holds a lock).
+    if(event==='SIGNED_IN' && !interactiveAuth)setTimeout(()=>window.dispatchEvent(new Event('bz-auth-changed')),0);
+  }
   if (event === 'PASSWORD_RECOVERY' && session?.user?.id && session.expires_at > Date.now()/1000) {
     recoveryRequested = true;
     recoveryUserId = session.user.id;

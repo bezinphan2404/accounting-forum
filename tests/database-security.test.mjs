@@ -8,11 +8,13 @@ const post='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 await db.exec(`create role anon;create role authenticated;create schema auth;
 create table auth.users(id uuid primary key,raw_user_meta_data jsonb default '{}');
 create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+create function auth.jwt() returns jsonb language sql stable as $$select jsonb_build_object('is_anonymous',coalesce(nullif(current_setting('request.jwt.claim.is_anonymous',true),''),'false')::boolean)$$;
 grant usage on schema auth,public to anon,authenticated;grant execute on function auth.uid() to anon,authenticated;`);
 for(const file of ['001_schema.sql','002_admin_roles.sql'])await db.exec(await readFile(new URL('../supabase/'+file,import.meta.url),'utf8'));
 await db.exec('alter policy likes_read on public.thread_likes rename to thread_likes_read');
 await db.exec(`insert into auth.users(id) values('${a}'),('${b}'),('${admin}');insert into public.forum_roles values('${admin}','admin');`);
-for(const file of ['003_security_hardening.sql','004_like_privacy.sql'])await db.exec(await readFile(new URL('../supabase/'+file,import.meta.url),'utf8'));
+await db.exec('alter policy threads_read on public.threads rename to legacy_thread_read; grant select(title) on public.threads to public,anon;');
+for(const file of ['003_security_hardening.sql','004_like_privacy.sql','005_member_read_categories.sql'])await db.exec(await readFile(new URL('../supabase/'+file,import.meta.url),'utf8'));
 await db.exec(`insert into public.threads(id,author_id,category_id,title,content) values('${post}','${a}','cat-1','Test',repeat('x',1000));
 insert into public.thread_likes(thread_id,user_id) values('${post}','${a}'),('${post}','${b}');`);
 after(()=>db.close());
@@ -39,8 +41,8 @@ test('profiles are automatically created and clients cannot insert profiles',asy
  }finally{await db.exec('rollback');}
  await as('authenticated',a,async()=>assert.rejects(db.query(`insert into public.profiles(id,name) values('${a}','overwrite')`),/permission denied/));
 });
-test('public cards are bounded summaries, aggregates hide identities, badges exclude auth data',async()=>{
- await as('anon',null,async()=>{
+test('member cards are bounded summaries, aggregates hide identities, badges exclude auth data',async()=>{
+ await as('authenticated',a,async()=>{
  const page=(await db.query('select public.forum_thread_page(p_limit=>1) p')).rows[0].p;
  assert.equal(page.items.length,1);assert.equal(page.items[0].content.length,180);assert.equal(page.items[0].likes,2);
  assert.ok(!JSON.stringify(page).includes('user_id'));
@@ -59,5 +61,50 @@ test('database length constraints reject oversized content',async()=>{
  await as('authenticated',a,async()=>assert.rejects(db.query(`update public.threads set content=repeat('x',50001) where id='${post}'`),/check constraint/));
 });
 test('security migrations can be applied again safely',async()=>{
- for(const file of ['003_security_hardening.sql','004_like_privacy.sql'])await db.exec(await readFile(new URL('../supabase/'+file,import.meta.url),'utf8'));
+ for(const file of ['003_security_hardening.sql','004_like_privacy.sql','005_member_read_categories.sql','005_member_read_categories.sql'])await db.exec(await readFile(new URL('../supabase/'+file,import.meta.url),'utf8'));
+});
+
+test('guests cannot read any forum table, column grant or content RPC',async()=>{
+ for(const table of ['profiles','categories','threads','replies','thread_likes','forum_roles']) {
+  await as('anon',null,async()=>assert.rejects(db.query('select * from public.'+table),/permission denied/));
+ }
+ await as('anon',null,async()=>assert.rejects(db.query('select title from public.threads'),/permission denied/));
+ for(const sql of ["select public.forum_public_profiles('{}')",'select public.forum_thread_page()',`select public.forum_thread_detail('${post}')`,'select public.forum_stats()','select public.is_forum_admin()','select public.require_forum_member()']) {
+  await as('anon',null,async()=>assert.rejects(db.query(sql),/permission denied/));
+ }
+});
+
+test('authenticated role without an identity gets no rows and cannot bypass SECURITY DEFINER guards',async()=>{
+ for(const table of ['profiles','categories','threads','replies','thread_likes','forum_roles']) {
+  await as('authenticated',null,async()=>assert.equal((await db.query('select * from public.'+table)).rows.length,0));
+ }
+ for(const sql of ["select public.forum_public_profiles('{}')",'select public.forum_thread_page()',`select public.forum_thread_detail('${post}')`,'select public.forum_stats()']) {
+  await as('authenticated',null,async()=>assert.rejects(db.query(sql),/Vui lòng đăng nhập/));
+ }
+});
+
+test('parent and child filtering, search, author, pagination and counts agree',async()=>{
+ await db.exec('begin');
+ try {
+  await db.query("insert into public.threads(author_id,category_id,title,content) values ($1,'cat-2','Tổng quan thuế','parent'),($1,'cat-2-vat','GTGT example','child'),($2,'cat-2-pit','TNCN example','sibling')",[a,b]);
+  await db.exec('set local role authenticated');await db.query("select set_config('request.jwt.claim.sub',$1,true)",[a]);
+  const page=async(category,search=null,author=null,offset=0,limit=20)=>(await db.query('select public.forum_thread_page($1,$2,$3,$4,$5,$6) p',[category,search,author,'newest',offset,limit])).rows[0].p;
+  assert.equal((await page('cat-2')).total,3);assert.equal((await page('cat-2-vat')).total,1);
+  assert.equal((await page('cat-2','example')).total,2);assert.equal((await page('cat-2',null,a)).total,2);
+  assert.equal((await page('missing')).total,0);
+  const first=await page('cat-2',null,null,0,1),second=await page('cat-2',null,null,1,1);
+  assert.equal(first.total,3);assert.equal(first.items.length,1);assert.notEqual(first.items[0].id,second.items[0].id);
+  const stats=(await db.query('select public.forum_stats() s')).rows[0].s;
+  assert.equal(stats.categoryCounts['cat-2'],3);assert.equal(stats.categoryCounts['cat-2-vat'],1);assert.equal(stats.categories,8);assert.equal(stats.subcategories,38);
+  const roots=(await db.query('select id from public.categories where parent_id is null order by sort_order,id')).rows;
+  assert.equal(roots.at(-1).id,'cat-6');
+ } finally {await db.exec('rollback');}
+});
+
+test('Supabase anonymous identities are not treated as signed-in members',async()=>{
+ await as('authenticated',a,async()=>{
+  await db.query("select set_config('request.jwt.claim.is_anonymous','true',true)");
+  assert.equal((await db.query('select * from public.threads')).rows.length,0);
+  await assert.rejects(db.query('select public.forum_stats()'),/Vui lòng đăng nhập/);
+ });
 });

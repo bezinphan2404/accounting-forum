@@ -19,7 +19,7 @@ const ICONS = {
 };
 
 import { getDB, getCategories, getCategoryById, getThreadCountByCategory, getUsers, getUserById, createUser, authenticateUser, getThreads, getThreadById, createThread, incrementViews, toggleLike, getReplies, createReply, getReplyCount, getStats } from './remote-data.js';
-import { refreshData, getCurrentUser, signInWithGoogle, signOut, updateThread, updateReply, isPasswordRecovery, authCallbackError, sendPasswordReset, completePasswordReset, loadThreadPage, loadThreadDetail, loadAdminReplies, loadProfile, getPageInfo } from './remote-data.js';
+import { refreshData, getCurrentUser, clearForumData, signInWithGoogle, signOut, updateThread, updateReply, isPasswordRecovery, authCallbackError, sendPasswordReset, completePasswordReset, loadThreadPage, loadThreadDetail, loadAdminReplies, loadProfile, getPageInfo } from './remote-data.js';
 let currentUser = null;
 
 function setCurrentUser(user) {
@@ -81,11 +81,33 @@ function navigate(hash) {
 let routeVersion=0;
 let listOffset=0;
 let previousRoute='';
+const publicRoutes=new Set(['#/login','#/register','#/forgot-password','#/reset-password']);
+function rememberDestination(hash) {
+  if(/^#\/(?:$|(?:category|thread|profile|edit)\/[a-z0-9-]+$|new-thread$|admin$|search\?q=)/i.test(hash) && hash.length<=500)sessionStorage.setItem('bz_return_to',hash);
+}
+function loginDestination() {
+  const saved=sessionStorage.getItem('bz_return_to');sessionStorage.removeItem('bz_return_to');
+  return saved && /^#\//.test(saved) && !publicRoutes.has(saved)?saved:'#/';
+}
+function showMemberLogin() {
+  if(!publicRoutes.has(getRoute()))rememberDestination(getRoute());
+  history.replaceState(null,'',location.pathname+'#/login');renderLogin();
+}
 async function router() {
   const hash = getRoute();
   const version=++routeVersion;
   if(hash!==previousRoute){listOffset=0;previousRoute=hash;}
   try {
+    if(!publicRoutes.has(hash)) {
+      if(!currentUser){showMemberLogin();return;}
+      document.getElementById('app').innerHTML=`${renderHeader()}<main class="main-layout-full"><p role="status">Đang tải nội dung...</p></main>`;
+      const user=await getCurrentUser();
+      if(version!==routeVersion)return;
+      setCurrentUser(user);
+      if(!user){clearForumData();showMemberLogin();return;}
+      if(!getCategories().length)await refreshData();
+      if(version!==routeVersion)return;
+    }
     if(hash.startsWith('#/thread/') || hash.startsWith('#/edit/')) {
       const id=hash.split('/')[2];if(!/^[0-9a-f-]{36}$/i.test(id))throw Error('Đường dẫn không hợp lệ.');
       await loadThreadDetail(id);
@@ -98,7 +120,15 @@ async function router() {
     } else if(hash==='#/' || hash.startsWith('#/category/') || hash.startsWith('#/search')) {
       await loadThreadPage({categoryId:hash.startsWith('#/category/')?hash.split('/')[2]:null,search:hash.startsWith('#/search')?new URLSearchParams(hash.split('?')[1] || '').get('q'):null,sortBy:currentSort,offset:listOffset});
     }
-  }catch(error){if(version===routeVersion)showToast(friendlyError(error),'error');return;}
+  }catch(error){
+    if(version!==routeVersion)return;
+    if(error.code==='AUTH_REQUIRED' || error.status===401 || error.code==='PGRST301') {
+      clearForumData();setCurrentUser(null);showMemberLogin();
+    } else {
+      document.getElementById('app').innerHTML=`${renderHeader()}<main class="main-layout-full"><div class="form-card card"><p role="alert">${escapeHtml(friendlyError(error))}</p><button class="btn btn-outline" data-action="retry">Thử lại</button></div></main>${renderFooter()}`;
+    }
+    return;
+  }
   if(version!==routeVersion)return;
   const app = document.getElementById('app');
 
@@ -135,7 +165,7 @@ async function router() {
   }
 }
 
-window.addEventListener('hashchange', ()=>void router());
+window.addEventListener('hashchange', ()=>{if(initialized)void router();});
 
 // ===== Header =====
 function renderHeader() {
@@ -154,13 +184,13 @@ function renderHeader() {
           </div>
         </a>
 
-        <div class="search-container">
+        ${currentUser ? `<div class="search-container">
           <span class="search-icon">${ICONS.search}</span>
           <input type="text" class="search-input" id="search-input"
                  placeholder="Tìm kiếm bài viết, chủ đề..."
                  value="${escapeHtml(searchVal)}"
                  data-search="true">
-        </div>
+        </div>` : ''}
 
         <div class="header-actions">
           ${currentUser ? renderUserMenu() : renderAuthButtons()}
@@ -213,7 +243,7 @@ document.addEventListener('click', (e) => {
 
 // ===== Sidebar =====
 function renderSidebar(activeCatId) {
-  const categories = getCategories();
+  const categories = sortedCategories();
   return `
     <aside class="sidebar">
       <div class="sidebar-new-thread">
@@ -230,11 +260,15 @@ function renderSidebar(activeCatId) {
             Tất cả
             <span class="category-count">${getStats().threads}</span>
           </li>
-          ${categories.map(cat => `
-            <li class="category-item ${activeCatId === cat.id ? 'active' : ''}" data-route="#/category/${escapeHtml(cat.id)}">
-              <span class="category-dot" style="background: ${escapeHtml(cat.color)}"></span>
-              ${escapeHtml(cat.name)}
-              <span class="category-count">${getThreadCountByCategory(cat.id)}</span>
+          ${categories.filter(c=>!c.parent_id).map(cat => `
+            <li class="category-group">
+              <details ${categoryTrail(activeCatId).some(c=>c.id===cat.id)?'open':''}>
+                <summary><span class="category-dot" style="background:${escapeHtml(cat.color)}"></span><span>${escapeHtml(cat.name)}</span><span class="category-count">${getThreadCountByCategory(cat.id)}</span></summary>
+                <ul class="category-children">
+                  <li><a class="category-item ${activeCatId===cat.id?'active':''}" href="#/category/${escapeHtml(cat.id)}">Xem tất cả ${escapeHtml(cat.name)}<span class="category-count">${getThreadCountByCategory(cat.id)}</span></a></li>
+                  ${categories.filter(c=>c.parent_id===cat.id).map(child=>`<li><a class="category-item ${activeCatId===child.id?'active':''}" href="#/category/${escapeHtml(child.id)}">${escapeHtml(child.name)}<span class="category-count">${getThreadCountByCategory(child.id)}</span></a></li>`).join('')}
+                </ul>
+              </details>
             </li>
           `).join('')}
         </ul>
@@ -252,12 +286,28 @@ function renderSidebar(activeCatId) {
   `;
 }
 
+function sortedCategories() {
+  return [...getCategories()].sort((a,b)=>(a.sort_order||0)-(b.sort_order||0) || a.id.localeCompare(b.id));
+}
+function categoryTrail(id) {
+  const trail=[];const seen=new Set();let cat=getCategoryById(id);
+  while(cat && !seen.has(cat.id)){seen.add(cat.id);trail.unshift(cat);cat=getCategoryById(cat.parent_id);}
+  return trail;
+}
+function renderCategoryTrail(id) {
+  return categoryTrail(id).map(c=>`<a href="#/category/${escapeHtml(c.id)}">${escapeHtml(c.icon+' '+c.name)}</a><span class="breadcrumb-sep">›</span>`).join('');
+}
+function renderCategoryOptions(selected='') {
+  const categories=sortedCategories();
+  return categories.filter(c=>!c.parent_id).map(root=>`<optgroup label="${escapeHtml(root.name)}">${[root,...categories.filter(c=>c.parent_id===root.id)].map(c=>`<option value="${escapeHtml(c.id)}" ${c.id===selected?'selected':''}>${escapeHtml(c.name)}${c.id===root.id?' (chung)':''}</option>`).join('')}</optgroup>`).join('');
+}
+
 // ===== Footer =====
 function renderFooter() {
   return `
     <footer class="footer">
       <p>© ${new Date().getFullYear()} <strong>BZ Forum</strong> – Cộng đồng Kế toán Tài chính Việt Nam</p>
-      <p style="margin-top:0.3rem;">Được tạo bởi <a href="#">Bezin</a> với ❤️</p>
+      <p style="margin-top:0.3rem;">Được tạo bởi <a href="#">Bezin</a> với ❤️ · <a href="/privacy.html">Chính sách riêng tư</a></p>
     </footer>
   `;
 }
@@ -304,7 +354,7 @@ function renderHome(categoryId) {
           <div class="breadcrumb">
             <a data-route="#/">Trang chủ</a>
             <span class="breadcrumb-sep">›</span>
-            <span>${escapeHtml(category.icon + ' ' + category.name)}</span>
+            ${renderCategoryTrail(categoryId)}
           </div>
         `}
 
@@ -318,6 +368,7 @@ function renderHome(categoryId) {
         </div>
 
         <div class="thread-list">
+          ${category && !category.parent_id ? `<p class="category-hint">Gồm bài trong nhóm này và các chuyên mục con.</p>` : ''}
           ${threads.length === 0 ? `
             <div class="empty-state">
               <div class="empty-state-icon">📭</div>
@@ -386,7 +437,7 @@ function renderThread(threadId) {
   app.innerHTML = `
     ${renderHeader()}
     <div class="main-layout">
-      ${renderSidebar()}
+      ${renderSidebar(thread.categoryId)}
       <main class="content animate-fadeIn">
         <div class="thread-detail">
           <a class="back-link" data-action="back">${ICONS.back} Quay lại</a>
@@ -394,7 +445,7 @@ function renderThread(threadId) {
           <div class="breadcrumb">
             <a data-route="#/">Trang chủ</a>
             <span class="breadcrumb-sep">›</span>
-            ${category ? `<a data-route="#/category/${escapeHtml(category.id)}">${escapeHtml(category.icon + ' ' + category.name)}</a><span class="breadcrumb-sep">›</span>` : ''}
+            ${renderCategoryTrail(thread.categoryId)}
             <span style="color:var(--color-text);">${escapeHtml(thread.title.substring(0, 50))}...</span>
           </div>
 
@@ -493,7 +544,7 @@ function renderNewThread() {
               <label class="form-label">Danh mục *</label>
               <select class="form-select" id="thread-category" required>
                 <option value="">-- Chọn danh mục --</option>
-                ${categories.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.icon)} ${escapeHtml(c.name)}</option>`).join('')}
+                ${renderCategoryOptions()}
               </select>
             </div>
 
@@ -534,7 +585,7 @@ function renderLogin() {
             <img src="${logoUrl}" alt="BZ" style="width:60px; height:60px;">
           </div>
           <h2 class="form-title">Đăng nhập</h2>
-          <p class="form-subtitle">Chào mừng quay lại BZ Forum</p>
+          <p class="form-subtitle">Đăng nhập để xem bài viết, chuyên mục và tài liệu BZ Forum.</p>
 
           <button type="button" class="btn btn-outline btn-lg" style="width:100%;margin-bottom:16px" data-action="google">Tiếp tục với Google</button><p class="form-subtitle">Hoặc đăng nhập bằng email</p><form data-submit="handleLogin">
             <div class="form-group">
@@ -709,7 +760,7 @@ async function handleLogin(e) {
   if (user) {
     setCurrentUser(user);
     showToast(`Chào mừng ${user.name}! 👋`);
-    navigate('#/');
+    navigate(loginDestination());
   } else {
     const err = document.getElementById('login-error');
     err.style.display = 'block';
@@ -741,14 +792,15 @@ async function handleRegister(e) {
   if (result.confirmationRequired) { showToast('Vui lòng mở email xác nhận tài khoản rồi đăng nhập.', 'info'); navigate('#/login'); return; }
   setCurrentUser(result.user);
   showToast(`Đăng ký thành công! Chào mừng ${result.user.name} 🎉`);
-  navigate('#/');
+  navigate(loginDestination());
 }
 
 async function handleLogout() {
+  sessionStorage.removeItem('bz_return_to');
   await signOut();
   setCurrentUser(null);
   showToast('Đã đăng xuất', 'info');
-  navigate('#/');
+  history.replaceState(null,'',location.pathname+'#/login');renderLogin();
 }
 
 async function handleNewThread(e) {
@@ -786,16 +838,38 @@ async function handleLike(threadId) {
 
 // ===== INIT =====
 let initialized=false;
-window.addEventListener('bz-password-recovery',()=>{if(initialized)setTimeout(async()=>{currentUser=await getCurrentUser();history.replaceState(null,'',location.pathname+'#/reset-password');renderResetPassword();},0);});
+window.addEventListener('bz-auth-cleared',()=>{
+  ++routeVersion;setCurrentUser(null);
+  document.querySelectorAll('.article-preview-dialog').forEach(dialog=>dialog.remove());
+  if(initialized) {
+    // Keep public recovery/registration pages usable; remove private DOM immediately.
+    if(publicRoutes.has(getRoute()))void router();else showMemberLogin();
+  }
+});
+window.addEventListener('bz-auth-changed',()=>{
+  if(!initialized)return;
+  setTimeout(async()=>{
+    try {
+      const previousId=currentUser?.id;const user=await getCurrentUser();
+      if(!user)return;setCurrentUser(user);
+      if(previousId!==user.id){navigate(loginDestination());await router();}
+    }catch(error){showToast(friendlyError(error),'error');}
+  },0);
+});
+window.addEventListener('bz-password-recovery',()=>{if(initialized)setTimeout(async()=>{currentUser=await getCurrentUser();history.replaceState(null,'',location.pathname+'#/reset-password');await router();},0);});
 document.addEventListener('DOMContentLoaded', async () => {
   try {
-    currentUser = await getCurrentUser(); await refreshData();
+    currentUser = await getCurrentUser();
+    if(currentUser && getRoute()==='#/login' && !isPasswordRecovery()){history.replaceState(null,'',location.pathname+loginDestination());}
     if (authCallbackError) { history.replaceState(null,'',location.pathname+'#/forgot-password'); renderForgotPassword('Liên kết đã hết hạn hoặc không hợp lệ. Vui lòng yêu cầu liên kết mới.'); }
     else if (isPasswordRecovery()) { history.replaceState(null,'',location.pathname+'#/reset-password'); renderResetPassword(); }
-    else await router();
+    else {
+      if(currentUser && (getRoute()==='#/' || !getRoute().startsWith('#/')) && sessionStorage.getItem('bz_return_to'))history.replaceState(null,'',location.pathname+loginDestination());
+      await router();
+    }
     initialized=true;
   }
-  catch (error) { document.getElementById('app').innerHTML = '<p>Chưa kết nối được dữ liệu. Vui lòng tải lại trang.</p>'; console.error(error); }
+ catch (error) { clearForumData();setCurrentUser(null);initialized=true;renderLogin();showToast(friendlyError(error),'error'); }
 });
 
 function renderAdmin() {
@@ -806,7 +880,7 @@ function renderAdmin() {
 function renderEditThread(id) {
  const t=getThreadById(id);
  if(!t || !currentUser || (currentUser.role!=='admin' && currentUser.id!==t.authorId)) {navigate('#/');return;}
- document.getElementById('app').innerHTML=`${renderHeader()}<main class="main-layout-full"><div class="form-container"><div class="form-card card"><h1>Sửa bài viết</h1><form data-submit="handleEditThread" data-id="${escapeHtml(t.id)}"><label>Tiêu đề<input class="form-input" name="title" required maxlength="300" value="${escapeHtml(t.title)}"></label><label>Danh mục<select class="form-input" name="category">${getCategories().map(c=>`<option value="${escapeHtml(c.id)}" ${c.id===t.categoryId?'selected':''}>${escapeHtml(c.name)}</option>`).join('')}</select></label><label>Nội dung<textarea class="form-textarea" name="content" required maxlength="50000">${escapeHtml(t.content)}</textarea></label><button class="btn btn-primary" type="submit">Lưu bài viết</button></form></div></div></main>${renderFooter()}`;
+ document.getElementById('app').innerHTML=`${renderHeader()}<main class="main-layout-full"><div class="form-container"><div class="form-card card"><h1>Sửa bài viết</h1><form data-submit="handleEditThread" data-id="${escapeHtml(t.id)}"><label>Tiêu đề<input class="form-input" name="title" required maxlength="300" value="${escapeHtml(t.title)}"></label><label>Danh mục<select class="form-input" name="category">${renderCategoryOptions(t.categoryId)}</select></label><label>Nội dung<textarea class="form-textarea" name="content" required maxlength="50000">${escapeHtml(t.content)}</textarea></label><button class="btn btn-primary" type="submit">Lưu bài viết</button></form></div></div></main>${renderFooter()}`;
 }
 async function handleEditThread(event,id) {
  event.preventDefault(); const form=event.target; const button=form.querySelector('button'); button.disabled=true;
@@ -885,7 +959,7 @@ document.addEventListener('click',event=>{
  const el=event.target.closest('[data-action],[data-route]');if(!el || el.disabled)return;
  event.preventDefault();
  if(el.dataset.route){navigate(el.dataset.route);return;}
- const actions={back:()=>history.back(),menu:toggleDropdown,preview:previewPost,logout:handleLogout,google:()=>handleGoogleLogin({currentTarget:el}),sort:()=>changeSort(el.dataset.sort),like:()=>handleLike(el.dataset.id),
+ const actions={retry:()=>router(),back:()=>history.back(),menu:toggleDropdown,preview:previewPost,logout:handleLogout,google:()=>handleGoogleLogin({currentTarget:el}),sort:()=>changeSort(el.dataset.sort),like:()=>handleLike(el.dataset.id),
  'next-page':()=>{listOffset+=20;return router();},'previous-page':()=>{listOffset=Math.max(0,listOffset-20);return router();},
  'more-replies':async()=>{await loadThreadDetail(el.dataset.id,getReplies(el.dataset.id).length);renderThread(el.dataset.id);}};
  if(Object.hasOwn(actions,el.dataset.action))void perform(el,actions[el.dataset.action]);
