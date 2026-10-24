@@ -1,3 +1,4 @@
+import { retiredPartIds, archivedMatches, adjustSeriesStats, visibleThreadPage } from './published-series.js';
 import { createClient } from '@supabase/supabase-js';
 const callbackHash = new URLSearchParams(window.location.hash.slice(1));
 export const authCallbackError = callbackHash.get('error_code') || '';
@@ -18,12 +19,13 @@ let pageRequest = 0;
 let feedbackPage={items:[],total:0,offset:0};
 let feedbackRequest=0;
 const details = new Map();
+let archivedRows=null;let archivedRequest=null;let archiveLoadedAt=0;let visibleCursors=new Map();
 const authRequired=()=>Object.assign(new Error('Vui lòng đăng nhập để xem nội dung.'),{code:'AUTH_REQUIRED'});
 export function clearForumData() {
   dataEpoch++; activeProfile=null; memberId=null;
   db={categories:[],users:[],threads:[],replies:[]};
   stats={threads:0,replies:0,users:0,categories:0,categoryCounts:{}};
-  pageInfo={offset:0,total:0}; details.clear();
+  pageInfo={offset:0,total:0}; details.clear();archivedRows=null;archivedRequest=null;archiveLoadedAt=0;visibleCursors.clear();
   feedbackPage={items:[],total:0,offset:0};
 }
 function memberEpoch() {if(!activeProfile)throw authRequired();return dataEpoch;}
@@ -45,25 +47,36 @@ async function loadProfiles(ids) {
   const merged=new Map(db.users.map(p=>[p.id,p]));users.map(profile).forEach(p=>{merged.delete(p.id);merged.set(p.id,p);});
   db.users=[...merged.values()].slice(-150);
 }
+async function loadArchivedParts() {
+  const epoch=memberEpoch();
+  if(archivedRows && Date.now()-archiveLoadedAt<60000)return archivedRows;
+  if(archivedRequest)return archivedRequest;
+  const request=(async()=>{const rows=check(await client.from('threads').select('id,category_id,author_id,title,content,tags').in('id',retiredPartIds));ensureEpoch(epoch);archivedRows=rows;archiveLoadedAt=Date.now();return rows;})();
+  archivedRequest=request;try{return await request;}finally{if(archivedRequest===request)archivedRequest=null;}
+}
 export async function refreshData() {
   const epoch=memberEpoch();
-  const [categories,counts]=await Promise.all([
-    client.from('categories').select('id,name,icon,color,parent_id,sort_order').order('sort_order').order('id').limit(200), client.rpc('forum_stats')
+  const [categories,counts,archived]=await Promise.all([
+    client.from('categories').select('id,name,icon,color,parent_id,sort_order').order('sort_order').order('id').limit(200), client.rpc('forum_stats'),loadArchivedParts()
   ]);
   ensureEpoch(epoch);
   db.categories=check(categories).map(c=>({...c,color:/^#[0-9a-f]{6}$/i.test(c.color)?c.color:'#457b9d'}));
-  stats=check(counts);
+  stats=adjustSeriesStats(check(counts),archived,db.categories);
 }
 export async function loadThreadPage({categoryId=null,search=null,authorId=null,sortBy='newest',offset=0}={}) {
   const epoch=memberEpoch();
   const request=++pageRequest;
-  const result=check(await client.rpc('forum_thread_page',{p_category:categoryId,p_search:search,p_author:authorId,p_sort:sortBy,p_offset:offset,p_limit:20}));
+  const hidden=await loadArchivedParts();ensureEpoch(epoch);
+  const key=JSON.stringify([categoryId,search,authorId,sortBy]);
+  const result=await visibleThreadPage(async rawOffset=>{const page=check(await client.rpc('forum_thread_page',{p_category:categoryId,p_search:search,p_author:authorId,p_sort:sortBy,p_offset:rawOffset,p_limit:50}));ensureEpoch(epoch);return page;},
+    {offset,hiddenIds:new Set(hidden.map(r=>r.id)),hiddenCount:archivedMatches(hidden,{categoryId,search,authorId},db.categories).length,cursors:visibleCursors.get(key) || new Map([[0,0]])});
   ensureEpoch(epoch);
+
   const items=result.items.map(thread);
   await loadProfiles(items.map(t=>t.authorId).concat(authorId || []));
   ensureEpoch(epoch);
   if(request!==pageRequest)return;
-  db.threads=items;pageInfo={offset,total:Number(result.total)};
+  db.threads=items;pageInfo={offset,total:Number(result.total)};visibleCursors.set(key,result.cursors);if(visibleCursors.size>20)visibleCursors.delete(visibleCursors.keys().next().value);
 }
 export async function loadThreadDetail(id,offset=0) {
   const epoch=memberEpoch();
@@ -121,6 +134,7 @@ export async function createThread({title,content,categoryId,tags}) {
     throw Error('Mỗi bài được có tối đa 10 thẻ; mỗi thẻ từ 1 đến 50 ký tự.');
   }
   const user=await getCurrentUser();if(!user)throw Error('Vui lòng đăng nhập');
+  visibleCursors.clear();
   const t=check(await client.from('threads').insert({title,content,category_id:categoryId,tags,author_id:user.id}).select('id').single());
   await refreshData();return t;
 }
@@ -162,6 +176,7 @@ export async function signOut({scope='local'}={}) {
 }
 
 export async function updateThread(id, title, content, categoryId) {
+  visibleCursors.clear();archivedRows=null;archiveLoadedAt=0;
   const rows=check(await client.from('threads').update({title,content,category_id:categoryId}).eq('id',id).select('id'));
   if(!rows.length) throw Error('Bạn không có quyền sửa bài viết này.');
   await Promise.all([refreshData(),loadThreadDetail(id)]);

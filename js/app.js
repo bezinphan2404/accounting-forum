@@ -1,3 +1,4 @@
+import { canonicalSeriesRoute } from './published-series.js';
 import logoUrl from '../assets/logo.svg';
 import { mountArticleWatermark } from './article-watermark.js';
 import { renderCommunityToolsShell, openCommunityToolsPanel, closeCommunityToolsPanel } from './community-tools.js';
@@ -66,7 +67,7 @@ function formatDate(dateStr) {
 }
 
 // ===== Render helpers =====
-import {escapeHtml, createMarkdownRenderer} from './safe-markdown.js';
+import {escapeHtml, createMarkdownRenderer, mountArticleTabs, articleExcerpt} from './safe-markdown.js';
 const renderMarkdown=createMarkdownRenderer(window);
 
 // ===== Router =====
@@ -86,7 +87,7 @@ let listOffset=0;
 let previousRoute='';
 const publicRoutes=new Set(['#/login','#/register','#/forgot-password','#/reset-password']);
 function rememberDestination(hash) {
-  if(/^#\/(?:$|(?:category|thread|profile|edit)\/[a-z0-9-]+$|new-thread$|admin$|ai$|feedback$|search\?q=)/i.test(hash) && hash.length<=500)sessionStorage.setItem('bz_return_to',hash);
+  if((/^#\/thread\/[0-9a-f-]{36}\?part=[1-9]\d?$/i.test(hash) || /^#\/(?:$|(?:category|thread|profile|edit)\/[a-z0-9-]+$|new-thread$|admin$|ai$|feedback$|search\?q=)/i.test(hash)) && hash.length<=500)sessionStorage.setItem('bz_return_to',hash);
 }
 function loginDestination() {
   const saved=sessionStorage.getItem('bz_return_to');sessionStorage.removeItem('bz_return_to');
@@ -97,7 +98,9 @@ function showMemberLogin() {
   history.replaceState(null,'',location.pathname+'#/login');renderLogin();
 }
 async function router() {
-  const hash = getRoute();
+  const originalHash=getRoute();
+  const hash=canonicalSeriesRoute(originalHash);
+  if(hash!==originalHash)history.replaceState(null,'',location.pathname+location.search+hash);
   const version=++routeVersion;
   if(hash!==previousRoute){listOffset=0;previousRoute=hash;}
   try {
@@ -112,10 +115,10 @@ async function router() {
       if(version!==routeVersion)return;
     }
     if(hash.startsWith('#/thread/') || hash.startsWith('#/edit/')) {
-      const id=hash.split('/')[2];if(!/^[0-9a-f-]{36}$/i.test(id))throw Error('Đường dẫn không hợp lệ.');
+      const id=hash.split('/')[2].split('?')[0];if(!/^[0-9a-f-]{36}$/i.test(id))throw Error('Đường dẫn không hợp lệ.');
       await loadThreadDetail(id);
     } else if(hash.startsWith('#/profile/')) {
-      const id=hash.split('/')[2];if(!/^[0-9a-f-]{36}$/i.test(id))throw Error('Đường dẫn không hợp lệ.');
+      const id=hash.split('/')[2].split('?')[0];if(!/^[0-9a-f-]{36}$/i.test(id))throw Error('Đường dẫn không hợp lệ.');
       await loadThreadPage({authorId:id,offset:listOffset});await loadProfile(id);
     } else if(hash==='#/feedback') {
       await loadFeedbackPage(listOffset);
@@ -145,7 +148,7 @@ async function router() {
     const catId = hash.replace('#/category/', '');
     renderHome(catId);
   } else if (hash.startsWith('#/thread/')) {
-    const threadId = hash.replace('#/thread/', '');
+    const threadId = hash.replace('#/thread/', '').split('?')[0];
     renderThread(threadId);
   } else if (hash === '#/feedback') {
     renderFeedback();
@@ -419,7 +422,7 @@ function renderThreadCard(thread) {
         </div>
       </div>
       <h3 class="thread-title">${escapeHtml(thread.title)}</h3>
-      <p class="thread-excerpt">${escapeHtml(thread.content.substring(0, 150))}...</p>
+      <p class="thread-excerpt">${escapeHtml(articleExcerpt(thread.content))}...</p>
       <div class="thread-footer">
         ${category ? `<span class="thread-tag" style="background:${escapeHtml(category.color)}">${escapeHtml(category.icon + ' ' + category.name)}</span>` : ''}
         ${thread.tags.slice(0, 3).map(tag => `<span class="thread-tag" style="background: rgba(69,123,157,0.7)">#${escapeHtml(tag)}</span>`).join('')}
@@ -531,6 +534,7 @@ function renderThread(threadId) {
     </div>
     ${renderFooter()}
   `;
+  mountArticleTabs(app.querySelector('.thread-detail-content'), {initialPart:Number(new URLSearchParams(getRoute().split('?')[1] || '').get('part') || 1),onSelect:part=>history.replaceState(null,'',location.pathname+location.search+'#/thread/'+thread.id+(part>1?'?part='+part:''))});
   mountArticleWatermark(app.querySelector('.thread-detail-content'), currentUser);
 }
 

@@ -14,7 +14,7 @@ async function fixture({hash='',search='',user={id:'test-user'},updateError=null
     async signOut(options){calls.push(['signOut',options]);return {data:{},error:null};}
   }});
   let code=await readFile(new URL('../js/remote-data.js',import.meta.url),'utf8');
-  code=code.replace("import { createClient } from '@supabase/supabase-js';",'const createClient=globalThis.__testClient;');
+  code=code.replace("'./published-series.js'",JSON.stringify(new URL('../js/published-series.js',import.meta.url).href)).replace("import { createClient } from '@supabase/supabase-js';",'const createClient=globalThis.__testClient;');
   const module=await import('data:text/javascript;base64,'+Buffer.from(code+'\n//'+serial++).toString('base64'));
   return {module,calls};
 }

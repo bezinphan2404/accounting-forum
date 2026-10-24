@@ -5,14 +5,14 @@ let serial=0;
 const id='11111111-1111-4111-8111-111111111111';
 const empty={data:[],error:null};
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
-async function fixture({user={id},profileDelay=null,detailDelay=null}={}) {
+async function fixture({user={id},profileDelay=null,detailDelay=null,archiveDelay=null}={}) {
  const calls=[];const events=[];let authCallback;
  globalThis.window={location:{hash:''},dispatchEvent:e=>events.push(e.type)};
  const resultFor=table=>table==='profiles'?{data:{id,name:'Member'},error:null}:empty;
  const chain=table=>{
-  const q={};for(const method of ['select','order','limit','eq','range'])q[method]=()=>q;
+  const q={};for(const method of ['select','order','limit','eq','range','in'])q[method]=()=>q;
   q.maybeSingle=()=>profileDelay?.promise || Promise.resolve(resultFor(table));
-  q.then=(resolve,reject)=>Promise.resolve(resultFor(table)).then(resolve,reject);return q;
+  q.then=(resolve,reject)=>(table==='threads' && archiveDelay ? archiveDelay.promise : Promise.resolve(resultFor(table))).then(resolve,reject);return q;
  };
  const rawThread={id,author_id:id,category_id:'cat-1',title:'Private',content:'Member-only text',created_at:new Date().toISOString()};
  globalThis.__cacheTestClient=()=>({auth:{onAuthStateChange:cb=>{authCallback=cb;},getUser:async()=>({data:{user},error:null}),getSession:async()=>({data:{session:{user:{id},access_token:'synthetic-session'}},error:null}),signOut:async opts=>{calls.push(['signOut',opts]);return {error:null};}},
@@ -22,7 +22,7 @@ async function fixture({user={id},profileDelay=null,detailDelay=null}={}) {
   return {data:name==='forum_public_profiles'?[{id,name:'Member'}]:name==='forum_thread_page'?{items:[rawThread],total:1}:{threads:1,categoryCounts:{}},error:null};
  }});
  let code=await readFile(new URL('../js/remote-data.js',import.meta.url),'utf8');
- code=code.replace("import { createClient } from '@supabase/supabase-js';",'const createClient=globalThis.__cacheTestClient;');
+ code=code.replace("'./published-series.js'",JSON.stringify(new URL('../js/published-series.js',import.meta.url).href)).replace("import { createClient } from '@supabase/supabase-js';",'const createClient=globalThis.__cacheTestClient;');
  const api=await import('data:text/javascript;base64,'+Buffer.from(code+'\n//cache'+serial++).toString('base64'));
  return {api,calls,events,auth:(...args)=>authCallback(...args),rawThread};
 }
@@ -36,6 +36,13 @@ test('guests never issue content API requests through the data module',async()=>
 test('anonymous Auth users cannot initialize member content',async()=>{
  const {api,calls}=await fixture({user:{id,is_anonymous:true}});
  assert.equal(await api.getCurrentUser(),null);await assert.rejects(api.refreshData(),/đăng nhập/);assert.deepEqual(calls,[]);
+});
+
+test('retained part lookups cannot repopulate private caches after signout',async()=>{
+ const archiveDelay=deferred();const {api,auth}=await fixture({archiveDelay});await api.getCurrentUser();
+ const pending=api.refreshData();await new Promise(r=>setTimeout(r,0));auth('SIGNED_OUT',null);
+ archiveDelay.resolve({data:[{id:'retired',title:'Private',content:'Private',category_id:'cat-1'}],error:null});
+ await assert.rejects(pending,/đăng nhập/);assert.equal(api.getStats().threads,0);assert.equal(api.getThreadById('retired'),undefined);
 });
 
 test('local logout clears every private cache and leaves other devices signed in',async()=>{

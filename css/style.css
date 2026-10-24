@@ -885,3 +885,14 @@ a:hover { color: var(--color-navy); }
 .community-result .ai-sources h3 {font-size:14px;margin:6px 0;}
 .community-tools button:focus-visible,.community-tools a:focus-visible {outline:3px solid #457b9d;outline-offset:3px;}
 @media(max-width:600px){.community-tools{right:max(12px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom));}.community-hint{display:none;}.community-ai-launcher{width:54px;height:54px;}.community-launchers{gap:9px;}.community-feedback-launcher{padding:9px 14px;}.community-panel{bottom:125px;max-height:calc(100dvh - 155px);}.community-panel-body{padding:14px;}.community-panel .form-input,.community-panel .form-select,.community-panel .form-textarea{font-size:16px;}}
+
+/* Parts remain within one article and one discussion. */
+.article-tabbed {min-width:0;max-width:100%;}
+.article-tab-list {display:flex;gap:8px;overflow-x:auto;padding:8px 2px 14px;margin:0 0 20px;max-width:100%;scrollbar-width:thin;border-bottom:1px solid #d7e3ed;}
+.article-tab-list [role=tab] {flex:0 0 auto;border:1px solid #b9cddd;border-radius:9px;background:#f3f7fb;color:#23496a;font:inherit;font-weight:700;padding:10px 18px;cursor:pointer;min-height:44px;}
+.article-tab-list [role=tab][aria-selected=true] {color:#fff;background:#17496e;border-color:#17496e;box-shadow:0 3px 9px #173c5d20;}
+.article-tab-list [role=tab]:focus-visible,.article-tab-panel:focus-visible {outline:3px solid #dc9828;outline-offset:3px;}
+.article-tab-panel[hidden] {display:none;}
+.article-part-title {font-size:clamp(20px,2.4vw,27px);line-height:1.45;color:#17496e;margin:0 0 24px;}
+.article-tab-pager {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:28px;padding-top:18px;border-top:1px solid #d7e3ed;color:#60778a;}
+@media(max-width:600px){.article-tab-list {gap:6px;}.article-tab-list [role=tab]{padding:9px 14px;}.article-tab-pager{gap:8px;}.article-tab-pager .btn{padding:9px 10px;font-size:13px;}}
