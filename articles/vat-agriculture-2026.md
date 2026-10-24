@@ -55,4 +55,4 @@ Nếu hàng đồng thời có tính chất nông sản và dược liệu: cầ
 [S5 — Nghị định 181/2025/NĐ-CP đã hợp nhất sửa đổi, Điều 4 và Điều 19](https://congbaocdn.chinhphu.vn/180507251028987904/2026/3/4/03signed-17726133860331013983973.pdf)
 [S6 — Nghị định 144/2026/NĐ-CP sửa đổi Nghị định 181, hiệu lực 20/06/2026](https://xaydungchinhsach.chinhphu.vn/toan-van-nghi-dinh-144-2026-nd-cp-sua-doi-bo-sung-mot-so-dieu-lien-quan-den-thue-gia-tri-gia-tang-119260508101923332.htm)
 
-Thiết kế bố cục tham khảo infographic Zin cung cấp của Visio.edu.vn; nội dung được diễn giải và đối chiếu riêng cho BZ Forum. Bài hướng dẫn đọc chính sách, không thay thế việc xác định thuế cho hồ sơ hàng hóa cụ thể.
+Bài hướng dẫn đọc chính sách, không thay thế việc xác định thuế cho hồ sơ hàng hóa cụ thể.
