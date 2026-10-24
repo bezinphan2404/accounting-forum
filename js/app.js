@@ -19,7 +19,7 @@ const ICONS = {
 };
 
 import { getDB, getCategories, getCategoryById, getThreadCountByCategory, getUsers, getUserById, createUser, authenticateUser, getThreads, getThreadById, createThread, incrementViews, toggleLike, getReplies, createReply, getReplyCount, getStats } from './remote-data.js';
-import { refreshData, getCurrentUser, signInWithGoogle, signOut, updateThread, updateReply, isPasswordRecovery, authCallbackError, sendPasswordReset, completePasswordReset } from './remote-data.js';
+import { refreshData, getCurrentUser, signInWithGoogle, signOut, updateThread, updateReply, isPasswordRecovery, authCallbackError, sendPasswordReset, completePasswordReset, loadThreadPage, loadThreadDetail, loadAdminReplies, loadProfile, getPageInfo } from './remote-data.js';
 let currentUser = null;
 
 function setCurrentUser(user) {
@@ -63,123 +63,8 @@ function formatDate(dateStr) {
 }
 
 // ===== Render helpers =====
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
-function nl2br(str) {
-  return escapeHtml(str).replace(/\n/g, '<br>');
-}
-
-function parseMarkdownTables(text) {
-  const tableRegex = /((?:^[ \t]*\|[^\n]+\|[ \t]*(?:\r?\n|$)){2,})/gm;
-  return text.replace(tableRegex, (match) => {
-    const lines = match.trim().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    if (lines.length < 2) return match;
-    if (!/^\|[\s\-:|]+\|$/.test(lines[1])) return match;
-
-    const parseRow = (line) => {
-      const clean = line.replace(/^\|/, '').replace(/\|$/, '');
-      return clean.split('|').map(c => c.trim());
-    };
-
-    const headers = parseRow(lines[0]);
-    const alignments = parseRow(lines[1]).map(col => {
-      const left = col.startsWith(':');
-      const right = col.endsWith(':');
-      if (left && right) return 'center';
-      if (right) return 'right';
-      return 'left';
-    });
-
-    let thead = '<thead><tr>' + headers.map((h, i) => {
-      const align = alignments[i] || 'left';
-      return `<th style="text-align:${align}">${h}</th>`;
-    }).join('') + '</tr></thead>';
-
-    let tbody = '<tbody>';
-    for (let r = 2; r < lines.length; r++) {
-      const cells = parseRow(lines[r]);
-      tbody += '<tr>' + cells.map((cell, i) => {
-        const align = alignments[i] || 'left';
-        return `<td style="text-align:${align}">${cell}</td>`;
-      }).join('') + '</tr>';
-    }
-    tbody += '</tbody>';
-
-    return `<div class="table-responsive"><table class="forum-table">${thead}${tbody}</table></div>`;
-  });
-}
-
-function renderMarkdown(text) {
-  if (!text) return '';
-  const columnBlocks = [];
-  text = text.replace(/:::columns\s*\n([\s\S]*?)\n:::endcolumns/g, (_, body) => {
-    const columns = body.split(/^### /m).filter(part => part.trim());
-    const cards = columns.map((column, index) => {
-      const [title, ...lines] = column.trim().split('\n');
-      const steps = lines.join('\n').split(/^#### /m).filter(part => part.trim());
-      return `<article class="explain-column explain-column-${index % 3}"><header><span class="explain-number">${index + 1}</span><h3>${escapeHtml(title)}</h3></header><div class="explain-steps">${steps.map(step => {
-        const [label, ...detail] = step.trim().split('\n');
-        return `<section class="explain-step"><h4>${escapeHtml(label)}</h4><div>${renderMarkdown(detail.join('\n'))}</div></section>`;
-      }).join('')}</div></article>`;
-    }).join('');
-    const key = `BZCOLUMNBLOCK${columnBlocks.length}END`;
-    columnBlocks.push(`<section class="article-columns" aria-label="So sánh chính sách theo nhóm hàng">${cards}</section>`);
-    return key;
-  });
-  let html = escapeHtml(text);
-  html = html.replace(/\[([^\]\n]+)\]\((https:\/\/[^\s)<>]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1 ↗</a>');
-
-  // Allow intentional line breaks inside table cells
-  html = html.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
-
-  // Inline code
-  html = html.replace(/`(.*?)`/g, '<code style="background:rgba(69,123,157,0.12); color:var(--color-navy); padding:2px 6px; border-radius:4px; font-family:monospace; font-size:0.92em; font-weight:500;">$1</code>');
-
-  // Bold & Italic
-  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-
-  // Parse Markdown Tables
-  html = parseMarkdownTables(html);
-
-  // Protect HTML table blocks from newline conversions
-  const tables = [];
-  html = html.replace(/<div class="table-responsive">[\s\S]*?<\/div>/g, (m) => {
-    tables.push(m);
-    return `__TABLE_PLACEHOLDER_${tables.length - 1}__`;
-  });
-
-  // Headings
-  html = html.replace(/(?:^|\n)### (.*?)(?=\n|$)/g, '<h3 style="margin-top:1.5rem; margin-bottom:0.75rem; color:var(--color-navy); font-size:1.2rem; font-weight:700; border-bottom:2px solid var(--color-primary); padding-bottom:6px;">$1</h3>');
-  html = html.replace(/(?:^|\n)#### (.*?)(?=\n|$)/g, '<h4 style="margin-top:1.2rem; margin-bottom:0.5rem; color:var(--color-text); font-size:1.05rem; font-weight:600;">$1</h4>');
-
-  // Divider
-  html = html.replace(/(?:^|\n)---(?=\n|$)/g, '<hr style="margin:1.75rem 0; border:none; border-top:1px dashed var(--color-border); opacity:0.8;">');
-
-  // Bullets
-  html = html.replace(/\n- /g, '\n<span style="color:var(--color-primary); font-weight:bold; margin-right:4px;">•</span> ');
-  html = html.replace(/\n  \+ /g, '\n&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--color-accent); font-weight:bold;">▸</span> ');
-  html = html.replace(/\n    \* /g, '\n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;▫ ');
-
-  // Newlines outside tables
-  html = html.replace(/\n/g, '<br>');
-
-  // Restore Tables
-  tables.forEach((tbl, idx) => {
-    html = html.replace(`__TABLE_PLACEHOLDER_${idx}__`, () => tbl);
-  });
-
-  html = html.replace(/^(<strong>[\s\S]*?<\/strong>)(?:<br>\s*){2}/, '<p class="article-lead">$1</p>');
-  columnBlocks.forEach((block, i) => {
-    const pattern = new RegExp('(?:<br>\\s*)*BZCOLUMNBLOCK' + i + 'END(?:<br>\\s*)*');
-    html = html.replace(pattern, () => block);
-  });
-  return html;
-}
+import {escapeHtml, createMarkdownRenderer} from './safe-markdown.js';
+const renderMarkdown=createMarkdownRenderer(window);
 
 // ===== Router =====
 let currentSort = 'newest';
@@ -193,8 +78,28 @@ function navigate(hash) {
   window.location.hash = hash;
 }
 
-function router() {
+let routeVersion=0;
+let listOffset=0;
+let previousRoute='';
+async function router() {
   const hash = getRoute();
+  const version=++routeVersion;
+  if(hash!==previousRoute){listOffset=0;previousRoute=hash;}
+  try {
+    if(hash.startsWith('#/thread/') || hash.startsWith('#/edit/')) {
+      const id=hash.split('/')[2];if(!/^[0-9a-f-]{36}$/i.test(id))throw Error('Đường dẫn không hợp lệ.');
+      await loadThreadDetail(id);
+    } else if(hash.startsWith('#/profile/')) {
+      const id=hash.split('/')[2];if(!/^[0-9a-f-]{36}$/i.test(id))throw Error('Đường dẫn không hợp lệ.');
+      await loadThreadPage({authorId:id,offset:listOffset});await loadProfile(id);
+    } else if(hash==='#/admin') {
+      if(currentUser?.role!=='admin'){navigate('#/');return;}
+      await loadThreadPage({offset:listOffset});await loadAdminReplies();
+    } else if(hash==='#/' || hash.startsWith('#/category/') || hash.startsWith('#/search')) {
+      await loadThreadPage({categoryId:hash.startsWith('#/category/')?hash.split('/')[2]:null,search:hash.startsWith('#/search')?new URLSearchParams(hash.split('?')[1] || '').get('q'):null,sortBy:currentSort,offset:listOffset});
+    }
+  }catch(error){if(version===routeVersion)showToast(friendlyError(error),'error');return;}
+  if(version!==routeVersion)return;
   const app = document.getElementById('app');
 
   if (hash === '#/' || hash === '') {
@@ -230,18 +135,18 @@ function router() {
   }
 }
 
-window.addEventListener('hashchange', router);
+window.addEventListener('hashchange', ()=>void router());
 
 // ===== Header =====
 function renderHeader() {
   const searchVal = getRoute().startsWith('#/search')
-    ? decodeURIComponent(getRoute().split('q=')[1] || '')
+    ? new URLSearchParams(getRoute().split('?')[1] || '').get('q') || ''
     : '';
 
   return `
     <header class="header">
       <div class="header-inner">
-        <a class="header-logo" onclick="navigate('#/')">
+        <a class="header-logo" data-route="#/">
           <img src="${logoUrl}" alt="BZ Logo">
           <div class="header-logo-text">
             <span class="header-logo-title">BZ Forum</span>
@@ -254,7 +159,7 @@ function renderHeader() {
           <input type="text" class="search-input" id="search-input"
                  placeholder="Tìm kiếm bài viết, chủ đề..."
                  value="${escapeHtml(searchVal)}"
-                 onkeydown="if(event.key==='Enter') handleSearch()">
+                 data-search="true">
         </div>
 
         <div class="header-actions">
@@ -267,24 +172,24 @@ function renderHeader() {
 
 function renderAuthButtons() {
   return `
-    <button class="btn btn-outline btn-sm" onclick="navigate('#/login')">Đăng nhập</button>
-    <button class="btn btn-primary btn-sm" onclick="navigate('#/register')">Đăng ký</button>
+    <button class="btn btn-outline btn-sm" data-route="#/login">Đăng nhập</button>
+    <button class="btn btn-primary btn-sm" data-route="#/register">Đăng ký</button>
   `;
 }
 
 function renderUserMenu() {
   return `
-    <div class="user-menu" id="user-menu" onclick="toggleDropdown()">
+    <div class="user-menu" id="user-menu" data-action="menu">
       <div class="user-menu-avatar">${escapeHtml(currentUser.avatar)}</div>
       <span class="user-menu-name">${escapeHtml(currentUser.name)} ${currentUser.role === 'admin' ? ' · Admin' : ''}</span>
       ${ICONS.chevronDown}
       <div class="dropdown-menu" id="user-dropdown">
-        ${currentUser.role === 'admin' ? `<button class="dropdown-item" onclick="navigate('#/admin')">Quản trị diễn đàn</button>` : ''}
-        <button class="dropdown-item" onclick="navigate('#/profile/${currentUser.id}')">
+        ${currentUser.role === 'admin' ? `<button class="dropdown-item" data-route="#/admin">Quản trị diễn đàn</button>` : ''}
+        <button class="dropdown-item" data-route="#/profile/${escapeHtml(currentUser.id)}">
           ${ICONS.user} Trang cá nhân
         </button>
         <div class="dropdown-divider"></div>
-        <button class="dropdown-item" onclick="handleLogout()">
+        <button class="dropdown-item" data-action="logout">
           ${ICONS.logout} Đăng xuất
         </button>
       </div>
@@ -312,7 +217,7 @@ function renderSidebar(activeCatId) {
   return `
     <aside class="sidebar">
       <div class="sidebar-new-thread">
-        <button class="btn btn-primary" onclick="${currentUser ? "navigate('#/new-thread')" : "navigate('#/login'); showToast('Vui lòng đăng nhập để đăng bài', 'info')"}">
+        <button class="btn btn-primary" data-route="${currentUser ? '#/new-thread' : '#/login'}">
           ${ICONS.plus} Tạo bài viết mới
         </button>
       </div>
@@ -320,14 +225,14 @@ function renderSidebar(activeCatId) {
       <div class="sidebar-section">
         <div class="sidebar-title">Danh mục</div>
         <ul class="category-list">
-          <li class="category-item ${!activeCatId ? 'active' : ''}" onclick="navigate('#/')">
+          <li class="category-item ${!activeCatId ? 'active' : ''}" data-route="#/">
             <span class="category-dot" style="background: var(--color-navy)"></span>
             Tất cả
             <span class="category-count">${getStats().threads}</span>
           </li>
           ${categories.map(cat => `
-            <li class="category-item ${activeCatId === cat.id ? 'active' : ''}" onclick="navigate('#/category/${cat.id}')">
-              <span class="category-dot" style="background: ${cat.color}"></span>
+            <li class="category-item ${activeCatId === cat.id ? 'active' : ''}" data-route="#/category/${escapeHtml(cat.id)}">
+              <span class="category-dot" style="background: ${escapeHtml(cat.color)}"></span>
               ${escapeHtml(cat.name)}
               <span class="category-count">${getThreadCountByCategory(cat.id)}</span>
             </li>
@@ -363,6 +268,7 @@ function renderFooter() {
 function renderHome(categoryId) {
   const threads = getThreads({ categoryId, sortBy: currentSort });
   const category = categoryId ? getCategoryById(categoryId) : null;
+  if(categoryId && !category){navigate('#/');return;}
   const stats = getStats();
 
   const app = document.getElementById('app');
@@ -396,7 +302,7 @@ function renderHome(categoryId) {
           </div>
         ` : `
           <div class="breadcrumb">
-            <a onclick="navigate('#/')">Trang chủ</a>
+            <a data-route="#/">Trang chủ</a>
             <span class="breadcrumb-sep">›</span>
             <span>${escapeHtml(category.icon + ' ' + category.name)}</span>
           </div>
@@ -405,9 +311,9 @@ function renderHome(categoryId) {
         <div class="content-header">
           <h3 class="content-title">${category ? escapeHtml(category.name) : 'Bài viết mới nhất'}</h3>
           <div class="sort-options">
-            <button class="btn btn-sm ${currentSort === 'newest' ? 'btn-secondary' : 'btn-ghost'}" onclick="changeSort('newest')">Mới nhất</button>
+            <button class="btn btn-sm ${currentSort === 'newest' ? 'btn-secondary' : 'btn-ghost'}" data-action="sort" data-sort="newest">Mới nhất</button>
 
-            <button class="btn btn-sm ${currentSort === 'most-liked' ? 'btn-secondary' : 'btn-ghost'}" onclick="changeSort('most-liked')">Yêu thích</button>
+            <button class="btn btn-sm ${currentSort === 'most-liked' ? 'btn-secondary' : 'btn-ghost'}" data-action="sort" data-sort="most-liked">Yêu thích</button>
           </div>
         </div>
 
@@ -417,9 +323,10 @@ function renderHome(categoryId) {
               <div class="empty-state-icon">📭</div>
               <div class="empty-state-title">Chưa có bài viết nào</div>
               <div class="empty-state-text">Hãy là người đầu tiên đăng bài trong danh mục này!</div>
-              <button class="btn btn-primary" onclick="navigate('#/new-thread')">Tạo bài viết</button>
+              <button class="btn btn-primary" data-route="#/new-thread">Tạo bài viết</button>
             </div>
           ` : threads.map(t => renderThreadCard(t)).join('')}
+          ${renderPagination()}
         </div>
       </main>
     </div>
@@ -433,7 +340,7 @@ function renderThreadCard(thread) {
   const replyCount = getReplyCount(thread.id);
 
   return `
-    <article class="thread-card card card-elevated ${thread.pinned ? 'thread-pinned' : ''}" onclick="navigate('#/thread/${thread.id}')">
+    <article class="thread-card card card-elevated ${thread.pinned ? 'thread-pinned' : ''}" data-route="#/thread/${escapeHtml(thread.id)}">
       <div class="thread-card-header">
         <div class="thread-avatar" style="background: ${category ? category.color : 'var(--color-navy)'}">${escapeHtml(author?.avatar || '?')}</div>
         <div class="thread-meta">
@@ -447,7 +354,7 @@ function renderThreadCard(thread) {
       <h3 class="thread-title">${escapeHtml(thread.title)}</h3>
       <p class="thread-excerpt">${escapeHtml(thread.content.substring(0, 150))}...</p>
       <div class="thread-footer">
-        ${category ? `<span class="thread-tag" style="background:${category.color}">${escapeHtml(category.icon + ' ' + category.name)}</span>` : ''}
+        ${category ? `<span class="thread-tag" style="background:${escapeHtml(category.color)}">${escapeHtml(category.icon + ' ' + category.name)}</span>` : ''}
         ${thread.tags.slice(0, 3).map(tag => `<span class="thread-tag" style="background: rgba(69,123,157,0.7)">#${escapeHtml(tag)}</span>`).join('')}
         <div style="flex:1"></div>
         <span class="thread-stat"></span>
@@ -460,12 +367,7 @@ function renderThreadCard(thread) {
 
 function changeSort(sort) {
   currentSort = sort;
-  const hash = getRoute();
-  if (hash.startsWith('#/category/')) {
-    renderHome(hash.replace('#/category/', ''));
-  } else {
-    renderHome();
-  }
+  listOffset=0;void router();
 }
 
 // ====================================================================
@@ -487,29 +389,29 @@ function renderThread(threadId) {
       ${renderSidebar()}
       <main class="content animate-fadeIn">
         <div class="thread-detail">
-          <a class="back-link" onclick="history.back()">${ICONS.back} Quay lại</a>
+          <a class="back-link" data-action="back">${ICONS.back} Quay lại</a>
 
           <div class="breadcrumb">
-            <a onclick="navigate('#/')">Trang chủ</a>
+            <a data-route="#/">Trang chủ</a>
             <span class="breadcrumb-sep">›</span>
-            ${category ? `<a onclick="navigate('#/category/${category.id}')">${escapeHtml(category.icon + ' ' + category.name)}</a><span class="breadcrumb-sep">›</span>` : ''}
+            ${category ? `<a data-route="#/category/${escapeHtml(category.id)}">${escapeHtml(category.icon + ' ' + category.name)}</a><span class="breadcrumb-sep">›</span>` : ''}
             <span style="color:var(--color-text);">${escapeHtml(thread.title.substring(0, 50))}...</span>
           </div>
 
           <div class="thread-detail-header">
-            ${currentUser && (currentUser.role === 'admin' || currentUser.id === thread.authorId) ? `<button class="btn btn-outline" onclick="navigate('#/edit/${thread.id}')">Sửa bài viết</button>` : ''}
+            ${currentUser && (currentUser.role === 'admin' || currentUser.id === thread.authorId) ? `<button class="btn btn-outline" data-route="#/edit/${escapeHtml(thread.id)}">Sửa bài viết</button>` : ''}
             <h1 class="thread-detail-title">${escapeHtml(thread.title)}</h1>
             <div class="thread-detail-meta">
-              <div class="thread-avatar" style="background: ${category?.color || 'var(--color-navy)'}; cursor:pointer;" onclick="navigate('#/profile/${author?.id}')">${escapeHtml(author?.avatar || '?')}</div>
+              <div class="thread-avatar" style="background: ${category?.color || 'var(--color-navy)'}; cursor:pointer;" data-route="#/profile/${escapeHtml(author?.id)}">${escapeHtml(author?.avatar || '?')}</div>
               <div>
-                <span class="thread-author" style="cursor:pointer;" onclick="navigate('#/profile/${author?.id}')">${escapeHtml(author?.name || 'Ẩn danh')}</span>
+                <span class="thread-author" style="cursor:pointer;" data-route="#/profile/${escapeHtml(author?.id)}">${escapeHtml(author?.name || 'Ẩn danh')}</span>
                 ${author?.role === 'admin' ? '<span class="badge badge-admin">Admin</span>' : ''}
                 ${author?.role === 'moderator' ? '<span class="badge badge-mod">Mod</span>' : ''}
                 <br><span class="thread-time">${formatDate(thread.createdAt)}</span>
               </div>
               <div style="flex:1"></div>
               <span class="thread-stat">${ICONS.eye} Bài viết cộng đồng</span>
-              <button class="vote-btn" onclick="handleLike('${thread.id}')">${ICONS.heart} ${thread.likes}</button>
+              <button class="vote-btn" data-action="like" data-id="${escapeHtml(thread.id)}">${ICONS.heart} ${thread.likes}</button>
             </div>
           </div>
 
@@ -521,28 +423,29 @@ function renderThread(threadId) {
           </div>
 
           <div class="replies-section">
-            <div class="replies-title">${ICONS.comment} ${replies.length} bình luận</div>
+            <div class="replies-title">${ICONS.comment} ${thread.replyCount} bình luận</div>
 
             ${replies.map(reply => {
               const rAuthor = getUserById(reply.authorId);
               return `
                 <div class="reply-card card">
                   <div class="reply-header">
-                    <div class="reply-avatar" style="cursor:pointer;" onclick="navigate('#/profile/${rAuthor?.id}')">${escapeHtml(rAuthor?.avatar || '?')}</div>
-                    <span class="reply-author" style="cursor:pointer;" onclick="navigate('#/profile/${rAuthor?.id}')">${escapeHtml(rAuthor?.name || 'Ẩn danh')}</span>
+                    <div class="reply-avatar" style="cursor:pointer;" data-route="#/profile/${escapeHtml(rAuthor?.id)}">${escapeHtml(rAuthor?.avatar || '?')}</div>
+                    <span class="reply-author" style="cursor:pointer;" data-route="#/profile/${escapeHtml(rAuthor?.id)}">${escapeHtml(rAuthor?.name || 'Ẩn danh')}</span>
                     ${rAuthor?.role === 'admin' ? '<span class="badge badge-admin">Admin</span>' : ''}
                     ${rAuthor?.role === 'moderator' ? '<span class="badge badge-mod">Mod</span>' : ''}
                     <span class="reply-time">${timeAgo(reply.createdAt)}</span>
                   </div>
-                  <div class="reply-content">${renderMarkdown(reply.content)}</div>
+                  <div class="reply-content">${renderMarkdown(reply.content)}</div>${currentUser?.role==='admin' ? `<form data-submit="handleAdminReply" data-id="${escapeHtml(reply.id)}"><label>Sửa bình luận<textarea class="form-textarea" name="content" required maxlength="10000">${escapeHtml(reply.content)}</textarea></label><button class="btn btn-outline" type="submit">Lưu bình luận</button></form>` : ''}
                 </div>
               `;
             }).join('')}
 
+            ${replies.length < thread.replyCount ? `<button class="btn btn-outline" data-action="more-replies" data-id="${escapeHtml(thread.id)}">Xem thêm bình luận</button>` : ''}
             ${currentUser ? `
               <div class="card" style="padding: var(--space-lg); margin-top: var(--space-md);">
                 <h4 style="margin-bottom: var(--space-md); color: var(--color-navy);">Viết bình luận</h4>
-                <form onsubmit="handleReply(event, '${thread.id}')">
+                <form data-submit="handleReply" data-id="${escapeHtml(thread.id)}">
                   <textarea class="form-textarea" id="reply-content" placeholder="Nhập nội dung bình luận..." required style="min-height:100px;"></textarea>
                   <div style="margin-top: var(--space-md); text-align:right;">
                     <button type="submit" class="btn btn-primary">Gửi bình luận</button>
@@ -552,7 +455,7 @@ function renderThread(threadId) {
             ` : `
               <div class="card" style="padding: var(--space-lg); margin-top: var(--space-md); text-align:center;">
                 <p style="color: var(--color-text-light); margin-bottom: var(--space-md);">Đăng nhập để tham gia thảo luận</p>
-                <button class="btn btn-primary" onclick="navigate('#/login')">Đăng nhập</button>
+                <button class="btn btn-primary" data-route="#/login">Đăng nhập</button>
               </div>
             `}
           </div>
@@ -575,12 +478,12 @@ function renderNewThread() {
     ${renderHeader()}
     <div class="main-layout-full">
       <div class="new-thread-form animate-fadeIn">
-        <a class="back-link" onclick="history.back()">${ICONS.back} Quay lại</a>
+        <a class="back-link" data-action="back">${ICONS.back} Quay lại</a>
         <div class="form-card card card-elevated">
           <h2 class="form-title">✏️ Tạo bài viết mới</h2>
           <p class="form-subtitle">Chia sẻ kiến thức, kinh nghiệm hoặc đặt câu hỏi</p>
 
-          <form onsubmit="handleNewThread(event)">
+          <form data-submit="handleNewThread">
             <div class="form-group">
               <label class="form-label">Tiêu đề *</label>
               <input type="text" class="form-input" id="thread-title" placeholder="Nhập tiêu đề bài viết..." required>
@@ -590,7 +493,7 @@ function renderNewThread() {
               <label class="form-label">Danh mục *</label>
               <select class="form-select" id="thread-category" required>
                 <option value="">-- Chọn danh mục --</option>
-                ${categories.map(c => `<option value="${c.id}">${c.icon} ${escapeHtml(c.name)}</option>`).join('')}
+                ${categories.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.icon)} ${escapeHtml(c.name)}</option>`).join('')}
               </select>
             </div>
 
@@ -605,8 +508,8 @@ function renderNewThread() {
             </div>
 
             <div class="form-actions">
-              <button type="button" class="btn btn-outline" onclick="history.back()">Hủy</button>
-              <button type="button" class="btn btn-outline" onclick="previewPost()">Xem trước</button>
+              <button type="button" class="btn btn-outline" data-action="back">Hủy</button>
+              <button type="button" class="btn btn-outline" data-action="preview">Xem trước</button>
               <button type="submit" class="btn btn-primary btn-lg">Đăng bài viết</button>
             </div>
           </form>
@@ -633,7 +536,7 @@ function renderLogin() {
           <h2 class="form-title">Đăng nhập</h2>
           <p class="form-subtitle">Chào mừng quay lại BZ Forum</p>
 
-          <button type="button" class="btn btn-outline btn-lg" style="width:100%;margin-bottom:16px" onclick="handleGoogleLogin(event)">Tiếp tục với Google</button><p class="form-subtitle">Hoặc đăng nhập bằng email</p><form onsubmit="handleLogin(event)">
+          <button type="button" class="btn btn-outline btn-lg" style="width:100%;margin-bottom:16px" data-action="google">Tiếp tục với Google</button><p class="form-subtitle">Hoặc đăng nhập bằng email</p><form data-submit="handleLogin">
             <div class="form-group">
               <label class="form-label">Email</label>
               <input type="email" class="form-input" id="login-email" placeholder="email@example.com" required>
@@ -650,7 +553,7 @@ function renderLogin() {
           </form>
 
           <div class="form-link">
-            Chưa có tài khoản? <a onclick="navigate('#/register')">Đăng ký ngay</a>
+            Chưa có tài khoản? <a data-route="#/register">Đăng ký ngay</a>
           </div>
 
         </div>
@@ -676,7 +579,7 @@ function renderRegister() {
           <h2 class="form-title">Đăng ký</h2>
           <p class="form-subtitle">Tham gia cộng đồng kế toán BZ Forum</p>
 
-          <button type="button" class="btn btn-outline btn-lg" style="width:100%;margin-bottom:16px" onclick="handleGoogleLogin(event)">Tiếp tục với Google</button><p class="form-subtitle">Hoặc đăng ký bằng email</p><form onsubmit="handleRegister(event)">
+          <button type="button" class="btn btn-outline btn-lg" style="width:100%;margin-bottom:16px" data-action="google">Tiếp tục với Google</button><p class="form-subtitle">Chọn Google để vào ngay, không cần email xác nhận. Đăng ký bằng email bên dưới có thể tạm hết hạn mức gửi thư.</p><form data-submit="handleRegister">
             <div class="form-group">
               <label class="form-label">Họ tên</label>
               <input type="text" class="form-input" id="reg-name" placeholder="Nhập họ tên" required>
@@ -700,7 +603,7 @@ function renderRegister() {
           </form>
 
           <div class="form-link">
-            Đã có tài khoản? <a onclick="navigate('#/login')">Đăng nhập</a>
+            Đã có tài khoản? <a data-route="#/login">Đăng nhập</a>
           </div>
         </div>
       </div>
@@ -720,7 +623,7 @@ function renderSearch(query) {
     <div class="main-layout">
       ${renderSidebar()}
       <main class="content animate-fadeIn">
-        <a class="back-link" onclick="navigate('#/')">${ICONS.back} Quay lại trang chủ</a>
+        <a class="back-link" data-route="#/">${ICONS.back} Quay lại trang chủ</a>
         <div class="content-header">
           <h3 class="content-title">Kết quả tìm kiếm: "${escapeHtml(query)}"</h3>
           <span style="color: var(--color-text-light); font-size:0.9rem;">${threads.length} kết quả</span>
@@ -733,6 +636,7 @@ function renderSearch(query) {
               <div class="empty-state-text">Thử tìm với từ khóa khác hoặc duyệt theo danh mục</div>
             </div>
           ` : threads.map(t => renderThreadCard(t)).join('')}
+          ${renderPagination()}
         </div>
       </main>
     </div>
@@ -754,7 +658,7 @@ function renderProfile(userId) {
     <div class="main-layout">
       ${renderSidebar()}
       <main class="content animate-fadeIn">
-        <a class="back-link" onclick="history.back()">${ICONS.back} Quay lại</a>
+        <a class="back-link" data-action="back">${ICONS.back} Quay lại</a>
 
         <div class="profile-header card card-elevated">
           <div class="profile-avatar">${escapeHtml(user.avatar)}</div>
@@ -770,7 +674,7 @@ function renderProfile(userId) {
 
         <div class="content-header">
           <h3 class="content-title">Bài viết của ${escapeHtml(user.name)}</h3>
-          <span style="color: var(--color-text-light); font-size:0.9rem;">${userThreads.length} bài</span>
+          <span style="color: var(--color-text-light); font-size:0.9rem;">${getPageInfo().total} bài</span>
         </div>
 
         <div class="thread-list">
@@ -780,6 +684,7 @@ function renderProfile(userId) {
               <div class="empty-state-title">Chưa có bài viết nào</div>
             </div>
           ` : userThreads.map(t => renderThreadCard(t)).join('')}
+          ${renderPagination()}
         </div>
       </main>
     </div>
@@ -829,7 +734,7 @@ async function handleRegister(e) {
   const result = await createUser(name, email, password);
   if (result.error) {
     err.style.display = 'block';
-    err.textContent = result.error;
+    err.textContent = friendlyError({message:result.error});
     return;
   }
 
@@ -880,33 +785,28 @@ async function handleLike(threadId) {
 }
 
 // ===== INIT =====
+let initialized=false;
+window.addEventListener('bz-password-recovery',()=>{if(initialized)setTimeout(async()=>{currentUser=await getCurrentUser();history.replaceState(null,'',location.pathname+'#/reset-password');renderResetPassword();},0);});
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     currentUser = await getCurrentUser(); await refreshData();
     if (authCallbackError) { history.replaceState(null,'',location.pathname+'#/forgot-password'); renderForgotPassword('Liên kết đã hết hạn hoặc không hợp lệ. Vui lòng yêu cầu liên kết mới.'); }
-    else if (isPasswordRecovery()) { history.replaceState(null,'',location.pathname+'?recovery=1#/reset-password'); renderResetPassword(); }
-    else router();
+    else if (isPasswordRecovery()) { history.replaceState(null,'',location.pathname+'#/reset-password'); renderResetPassword(); }
+    else await router();
+    initialized=true;
   }
   catch (error) { document.getElementById('app').innerHTML = '<p>Chưa kết nối được dữ liệu. Vui lòng tải lại trang.</p>'; console.error(error); }
 });
 
-// Expose handlers used by inline HTML attributes from this module.
-Object.assign(window, { navigate, showToast, toggleDropdown, changeSort, handleSearch, handleLogin, handleRegister, handleLogout, handleNewThread, handleReply, handleLike });
-
-// Keep async form failures visible without losing entered content.
-for (const name of ['handleLogin','handleRegister','handleLogout','handleNewThread','handleReply','handleLike']) {
- const handler=window[name]; let pending=false; window[name]=async (...args)=>{ args[0]?.preventDefault?.(); if(pending) return; pending=true; try {await handler(...args);} catch(error){ const message = friendlyError(error); const box=document.getElementById(name==='handleLogin'?'login-error':name==='handleRegister'?'reg-error':''); if(box){box.style.display='block';box.textContent=message;} showToast(message,'error');} finally {pending=false;} };
-}
-
 function renderAdmin() {
  if(currentUser?.role !== 'admin') { navigate('#/'); return; }
  const stats=getStats();
- document.getElementById('app').innerHTML=`${renderHeader()}<main class="main-layout-full"><div class="form-container"><div class="form-card card"><h1>Quản trị diễn đàn</h1><p>${stats.users} thành viên · ${stats.threads} bài viết · ${stats.replies} bình luận</p><p>Quản trị viên: ${escapeHtml(currentUser.name)}</p><button class="btn btn-primary" onclick="navigate('#/new-thread')">Tạo bài viết mới</button><h2>Bài viết</h2>${getThreads().map(t=>`<p>${escapeHtml(t.title)} <button class="btn btn-outline" onclick="navigate('#/edit/${t.id}')">Sửa bài viết</button></p>`).join('') || '<p>Chưa có bài viết.</p>'}<h2>Bình luận</h2>${getDB().replies.map(reply=>`<form onsubmit="handleAdminReply(event,'${reply.id}')"><p>${escapeHtml(getThreadById(reply.threadId)?.title || '')}</p><textarea class="form-textarea" name="content" required maxlength="10000">${escapeHtml(reply.content)}</textarea><button class="btn btn-outline" type="submit">Lưu bình luận</button></form>`).join('') || '<p>Chưa có bình luận.</p>'}</div></div></main>${renderFooter()}`;
+ document.getElementById('app').innerHTML=`${renderHeader()}<main class="main-layout-full"><div class="form-container"><div class="form-card card"><h1>Quản trị diễn đàn</h1><p>${stats.users} thành viên · ${stats.threads} bài viết · ${stats.replies} bình luận</p><p>Quản trị viên: ${escapeHtml(currentUser.name)}</p><button class="btn btn-primary" data-route="#/new-thread">Tạo bài viết mới</button><h2>Bài viết</h2>${getThreads().map(t=>`<p>${escapeHtml(t.title)} <button class="btn btn-outline" data-route="#/edit/${escapeHtml(t.id)}">Sửa bài viết</button></p>`).join('') || '<p>Chưa có bài viết.</p>'}${renderPagination()}<h2>Bình luận gần đây (tối đa 50)</h2>${getDB().replies.map(reply=>`<form data-submit="handleAdminReply" data-id="${escapeHtml(reply.id)}"><p>${escapeHtml(getThreadById(reply.threadId)?.title || '')}</p><textarea class="form-textarea" name="content" required maxlength="10000">${escapeHtml(reply.content)}</textarea><button class="btn btn-outline" type="submit">Lưu bình luận</button></form>`).join('') || '<p>Chưa có bình luận.</p>'}</div></div></main>${renderFooter()}`;
 }
 function renderEditThread(id) {
  const t=getThreadById(id);
  if(!t || !currentUser || (currentUser.role!=='admin' && currentUser.id!==t.authorId)) {navigate('#/');return;}
- document.getElementById('app').innerHTML=`${renderHeader()}<main class="main-layout-full"><div class="form-container"><div class="form-card card"><h1>Sửa bài viết</h1><form onsubmit="handleEditThread(event,'${t.id}')"><label>Tiêu đề<input class="form-input" name="title" required maxlength="300" value="${escapeHtml(t.title)}"></label><label>Danh mục<select class="form-input" name="category">${getCategories().map(c=>`<option value="${c.id}" ${c.id===t.categoryId?'selected':''}>${escapeHtml(c.name)}</option>`).join('')}</select></label><label>Nội dung<textarea class="form-textarea" name="content" required maxlength="50000">${escapeHtml(t.content)}</textarea></label><button class="btn btn-primary" type="submit">Lưu bài viết</button></form></div></div></main>${renderFooter()}`;
+ document.getElementById('app').innerHTML=`${renderHeader()}<main class="main-layout-full"><div class="form-container"><div class="form-card card"><h1>Sửa bài viết</h1><form data-submit="handleEditThread" data-id="${escapeHtml(t.id)}"><label>Tiêu đề<input class="form-input" name="title" required maxlength="300" value="${escapeHtml(t.title)}"></label><label>Danh mục<select class="form-input" name="category">${getCategories().map(c=>`<option value="${escapeHtml(c.id)}" ${c.id===t.categoryId?'selected':''}>${escapeHtml(c.name)}</option>`).join('')}</select></label><label>Nội dung<textarea class="form-textarea" name="content" required maxlength="50000">${escapeHtml(t.content)}</textarea></label><button class="btn btn-primary" type="submit">Lưu bài viết</button></form></div></div></main>${renderFooter()}`;
 }
 async function handleEditThread(event,id) {
  event.preventDefault(); const form=event.target; const button=form.querySelector('button'); button.disabled=true;
@@ -914,14 +814,14 @@ async function handleEditThread(event,id) {
 }
 async function handleAdminReply(event,id) {
  event.preventDefault(); const form=event.target; const button=form.querySelector('button'); button.disabled=true;
- try {await updateReply(id,form.elements.content.value.trim());showToast('Đã lưu bình luận');} catch(e){showToast(e.message,'error');} finally {button.disabled=false;}
+ try {await updateReply(id,form.elements.content.value.trim());showToast('Đã lưu bình luận');await router();} catch(e){showToast(e.message,'error');} finally {button.disabled=false;}
 }
-Object.assign(window,{handleEditThread,handleAdminReply});
 
 function friendlyError(error) {
  const message=error?.message || '';
  if(/email not confirmed/i.test(message)) return 'Email chưa được xác nhận. Vui lòng kiểm tra hộp thư và thư rác.';
  if(/invalid login credentials/i.test(message)) return 'Email hoặc mật khẩu không đúng.';
+ if(/email rate limit|over_email_send_rate_limit/i.test(message)) return 'Hệ thống đang hết hạn mức gửi email. Bạn có thể chọn Tiếp tục với Google để vào ngay.';
  if(/rate limit|too many requests/i.test(message)) return 'Bạn đã thử nhiều lần. Vui lòng chờ rồi thử lại.';
  if(/fetch|network|timeout/i.test(message)) return 'Kết nối chưa ổn định. Vui lòng thử lại.';
  return message || 'Không thực hiện được. Vui lòng thử lại.';
@@ -935,14 +835,14 @@ function previewPost() {
  dialog.querySelector('button').addEventListener('click',()=>dialog.close());
  dialog.addEventListener('close',()=>dialog.remove()); document.body.appendChild(dialog); dialog.showModal();
 }
-window.previewPost=previewPost;
+
 
 function renderForgotPassword(message='') {
- document.getElementById('app').innerHTML=`${renderHeader()}<main class="main-layout-full"><div class="form-container"><div class="form-card card card-elevated"><h1>Quên mật khẩu</h1><p>Nhập email đã đăng ký để nhận liên kết đặt lại mật khẩu.</p><form onsubmit="handleForgotPassword(event)"><label class="form-label" for="recovery-email">Email</label><input class="form-input" id="recovery-email" type="email" autocomplete="email" required><p id="recovery-message" role="status">${escapeHtml(message)}</p><button class="btn btn-primary" type="submit">Gửi liên kết đặt lại mật khẩu</button></form><p class="form-link"><a href="#/login">Quay lại đăng nhập</a></p></div></div></main>${renderFooter()}`;
+ document.getElementById('app').innerHTML=`${renderHeader()}<main class="main-layout-full"><div class="form-container"><div class="form-card card card-elevated"><h1>Quên mật khẩu</h1><p>Nhập email đã đăng ký để nhận liên kết đặt lại mật khẩu.</p><form data-submit="handleForgotPassword"><label class="form-label" for="recovery-email">Email</label><input class="form-input" id="recovery-email" type="email" autocomplete="email" required><p id="recovery-message" role="status">${escapeHtml(message)}</p><button class="btn btn-primary" type="submit">Gửi liên kết đặt lại mật khẩu</button></form><p class="form-link"><a href="#/login">Quay lại đăng nhập</a></p></div></div></main>${renderFooter()}`;
 }
 function renderResetPassword() {
  if(!currentUser || !isPasswordRecovery() || authCallbackError) {renderForgotPassword('Hãy mở liên kết xác nhận trong email để đặt mật khẩu mới.');return;}
- document.getElementById('app').innerHTML=`${renderHeader()}<main class="main-layout-full"><div class="form-container"><div class="form-card card card-elevated"><h1>Đặt mật khẩu mới</h1><p>Chọn mật khẩu có ít nhất 8 ký tự.</p><form onsubmit="handleResetPassword(event)"><label class="form-label" for="new-password">Mật khẩu mới</label><input class="form-input" id="new-password" type="password" autocomplete="new-password" minlength="8" required><label class="form-label" for="new-password-confirm">Nhập lại mật khẩu mới</label><input class="form-input" id="new-password-confirm" type="password" autocomplete="new-password" minlength="8" required><p id="reset-message" role="alert"></p><button class="btn btn-primary" type="submit">Lưu mật khẩu mới</button></form></div></div></main>${renderFooter()}`;
+ document.getElementById('app').innerHTML=`${renderHeader()}<main class="main-layout-full"><div class="form-container"><div class="form-card card card-elevated"><h1>Đặt mật khẩu mới</h1><p>Chọn mật khẩu có ít nhất 8 ký tự.</p><form data-submit="handleResetPassword"><label class="form-label" for="new-password">Mật khẩu mới</label><input class="form-input" id="new-password" type="password" autocomplete="new-password" minlength="8" required><label class="form-label" for="new-password-confirm">Nhập lại mật khẩu mới</label><input class="form-input" id="new-password-confirm" type="password" autocomplete="new-password" minlength="8" required><p id="reset-message" role="alert"></p><button class="btn btn-primary" type="submit">Lưu mật khẩu mới</button></form></div></div></main>${renderFooter()}`;
 }
 async function handleForgotPassword(event) {
  event.preventDefault();const button=event.target.querySelector('button');if(button.disabled)return;button.disabled=true;
@@ -959,9 +859,34 @@ async function handleResetPassword(event) {
  try {await completePasswordReset(password);setCurrentUser(null);history.replaceState(null,'',location.pathname+'#/login');renderLogin();showToast('Đã đổi mật khẩu. Vui lòng đăng nhập bằng mật khẩu mới.');}
  catch(error){box.textContent=friendlyError(error);}finally{button.disabled=false;}
 }
-Object.assign(window,{handleForgotPassword,handleResetPassword});
 
-window.handleGoogleLogin = async function(event) {
+async function handleGoogleLogin(event) {
  const button=event.currentTarget;if(button.disabled)return;button.disabled=true;
  try {await signInWithGoogle();} catch(error){showToast(friendlyError(error),'error');button.disabled=false;}
 };
+function renderPagination() {
+ const {offset,total}=getPageInfo();
+ return `<nav aria-label="Phân trang" style="display:flex;gap:12px;margin-top:20px"><button class="btn btn-outline" data-action="previous-page" ${offset===0?'disabled':''}>Trang trước</button><span>Trang ${Math.floor(offset/20)+1} · ${total} bài</span><button class="btn btn-outline" data-action="next-page" ${offset+20>=total?'disabled':''}>Trang sau</button></nav>`;
+}
+const formHandlers={handleLogin,handleRegister,handleNewThread,handleReply,handleEditThread,handleAdminReply,handleForgotPassword,handleResetPassword};
+const pending=new WeakSet();
+async function perform(element,action) {
+ if(pending.has(element))return;
+ pending.add(element);
+ try{await action();}catch(error){const message=friendlyError(error);const box=document.getElementById(element.dataset.submit==='handleLogin'?'login-error':element.dataset.submit==='handleRegister'?'reg-error':'');if(box){box.style.display='block';box.textContent=message;}showToast(message,'error');}
+ finally{pending.delete(element);}
+}
+document.addEventListener('submit',event=>{
+ const form=event.target;if(!Object.hasOwn(formHandlers,form.dataset.submit))return;const handler=formHandlers[form.dataset.submit];
+ event.preventDefault();void perform(form,()=>handler(event,form.dataset.id));
+});
+document.addEventListener('keydown',event=>{if(event.key==='Enter' && event.target.matches('[data-search]')){event.preventDefault();handleSearch();}});
+document.addEventListener('click',event=>{
+ const el=event.target.closest('[data-action],[data-route]');if(!el || el.disabled)return;
+ event.preventDefault();
+ if(el.dataset.route){navigate(el.dataset.route);return;}
+ const actions={back:()=>history.back(),menu:toggleDropdown,preview:previewPost,logout:handleLogout,google:()=>handleGoogleLogin({currentTarget:el}),sort:()=>changeSort(el.dataset.sort),like:()=>handleLike(el.dataset.id),
+ 'next-page':()=>{listOffset+=20;return router();},'previous-page':()=>{listOffset=Math.max(0,listOffset-20);return router();},
+ 'more-replies':async()=>{await loadThreadDetail(el.dataset.id,getReplies(el.dataset.id).length);renderThread(el.dataset.id);}};
+ if(Object.hasOwn(actions,el.dataset.action))void perform(el,actions[el.dataset.action]);
+});
