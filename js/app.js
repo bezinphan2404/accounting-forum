@@ -1,6 +1,7 @@
 import { canonicalSeriesRoute } from './published-series.js';
 import logoUrl from '../assets/logo.svg';
 import { mountArticleWatermark } from './article-watermark.js';
+import { mountArticleProtection } from './article-protection.js';
 import { renderCommunityToolsShell, openCommunityToolsPanel, closeCommunityToolsPanel } from './community-tools.js';
 // ====================================
 // BZ Accounting Forum – Main Application
@@ -536,6 +537,7 @@ function renderThread(threadId) {
   `;
   mountArticleTabs(app.querySelector('.thread-detail-content'), {initialPart:Number(new URLSearchParams(getRoute().split('?')[1] || '').get('part') || 1),onSelect:part=>history.replaceState(null,'',location.pathname+location.search+'#/thread/'+thread.id+(part>1?'?part='+part:''))});
   mountArticleWatermark(app.querySelector('.thread-detail-content'), currentUser);
+  mountArticleProtection(app.querySelector('.thread-detail-content'), {onBlocked:()=>showToast('Diễn đàn hạn chế sao chép nội dung bài viết. Bạn vẫn có thể mở các nguồn pháp lý để tham khảo.','info')});
 }
 
 // ====================================================================

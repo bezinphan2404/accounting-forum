@@ -28,6 +28,7 @@ test('UI renders without executable attributes or global handlers and delegated 
  code=code.replace(/import \{([^}]+)\} from '\.\/remote-data\.js';/g,'const {$1}=globalThis.__appTestAPI;');
  code=code.replace("'./safe-markdown.js'",JSON.stringify(new URL('../js/safe-markdown.js',import.meta.url).href));
  code=code.replace("'./article-watermark.js'",JSON.stringify(new URL('../js/article-watermark.js',import.meta.url).href));
+ code=code.replace("'./article-protection.js'",JSON.stringify(new URL('../js/article-protection.js',import.meta.url).href));
  code=code.replace("'./published-series.js'",JSON.stringify(new URL('../js/published-series.js',import.meta.url).href));
  code=code.replace("'./community-tools.js'",JSON.stringify(new URL('../js/community-tools.js',import.meta.url).href));
  await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));
@@ -66,6 +67,12 @@ test('UI renders without executable attributes or global handlers and delegated 
  w.document.querySelector('form[data-submit="handleFeedback"]').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await settle();assert.equal(calls.filter(c=>c[0]==='feedback-create').length,1);
  w.location.hash='#/ai';await settle();assert.ok(w.document.body.textContent.includes('AI đang chờ kết nối'));assert.equal(w.document.querySelector('[data-mode="edit"]'),null);assert.ok(w.document.querySelector('button[type="submit"]').disabled);
  w.document.getElementById('ai-input').value='GTGT';w.document.querySelector('[data-action="ai-search"]').click();await settle();assert.ok(w.document.querySelector('.ai-sources a'));
+ // A member reading the article cannot use ordinary copy; replies/editor stay editable.
+ w.location.hash='#/thread/'+id;await settle();
+ const protectedBody=w.document.querySelector('.article-copy-protected');assert.ok(protectedBody);
+ const memberCopy=new w.Event('copy',{bubbles:true,cancelable:true});protectedBody.querySelector('p').dispatchEvent(memberCopy);assert.ok(memberCopy.defaultPrevented);
+ const replyCopy=new w.Event('copy',{bubbles:true,cancelable:true});w.document.getElementById('reply-content').dispatchEvent(replyCopy);assert.equal(replyCopy.defaultPrevented,false);
+ w.location.hash='#/edit/'+id;await settle();assert.equal(w.document.querySelector('.article-copy-protected'),null);
  user.role='admin';aiReady=true;w.location.hash='#/feedback';await settle();assert.ok(w.document.querySelector('.feedback-admin'));
  w.document.querySelector('select[name="status"]').value='planned';w.document.querySelector('textarea[name="response"]').value='Planned response';
  w.document.querySelector('form[data-submit="handleFeedbackAdmin"]').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await settle();assert.equal(calls.filter(c=>c[0]==='feedback-update').at(-1)[2],'planned');
@@ -77,6 +84,7 @@ test('UI renders without executable attributes or global handlers and delegated 
  assert.equal(w.document.querySelector('.article-watermark').dataset.memberName,user.name);
  assert.equal(w.document.querySelector('.article-watermark').dataset.memberCode,undefined);
  assert.equal(w.document.querySelector('.article-watermark').getAttribute('aria-hidden'),'true');
+ assert.ok(w.document.querySelector('.article-copy-protected')); // Admin reading view is covered too.
  thread.content=':::tabs\n:::tab Phần một\nNội dung một.\n:::tab Phần hai\nNội dung hai.\n:::endtabs';
  w.location.hash='#/thread/'+id+'?part=2';await settle();
  assert.equal(w.document.querySelectorAll('[role=tab]').length,2);assert.equal(w.document.querySelectorAll('[role=tabpanel]')[1].hidden,false);
@@ -107,6 +115,7 @@ test('guest deep links render login without fetching any forum content',async()=
  let code=await readFile(new URL('../js/app.js',import.meta.url),'utf8');
  code=code.replace("import logoUrl from '../assets/logo.svg';","const logoUrl='/logo.svg';").replace(/import \{([^}]+)\} from '\.\/remote-data\.js';/g,'const {$1}=globalThis.__appTestAPI;').replace("'./safe-markdown.js'",JSON.stringify(new URL('../js/safe-markdown.js',import.meta.url).href));
  code=code.replace("'./article-watermark.js'",JSON.stringify(new URL('../js/article-watermark.js',import.meta.url).href));
+ code=code.replace("'./article-protection.js'",JSON.stringify(new URL('../js/article-protection.js',import.meta.url).href));
  code=code.replace("'./published-series.js'",JSON.stringify(new URL('../js/published-series.js',import.meta.url).href));
  code=code.replace("'./community-tools.js'",JSON.stringify(new URL('../js/community-tools.js',import.meta.url).href));
  await import('data:text/javascript;base64,'+Buffer.from(code+'\n//guest').toString('base64'));
