@@ -19,17 +19,20 @@ let pageRequest = 0;
 let feedbackPage={items:[],total:0,offset:0};
 let feedbackRequest=0;
 const details = new Map();
+const attachments = new Map();
 let archivedRows=null;let archivedRequest=null;let archiveLoadedAt=0;let visibleCursors=new Map();
 const authRequired=()=>Object.assign(new Error('Vui lòng đăng nhập để xem nội dung.'),{code:'AUTH_REQUIRED'});
 export function clearForumData() {
   dataEpoch++; activeProfile=null; memberId=null;
   db={categories:[],users:[],threads:[],replies:[]};
   stats={threads:0,replies:0,users:0,categories:0,categoryCounts:{}};
-  pageInfo={offset:0,total:0}; details.clear();archivedRows=null;archivedRequest=null;archiveLoadedAt=0;visibleCursors.clear();
+  pageInfo={offset:0,total:0}; details.clear();attachments.clear();archivedRows=null;archivedRequest=null;archiveLoadedAt=0;visibleCursors.clear();
   feedbackPage={items:[],total:0,offset:0};
 }
 function memberEpoch() {if(!activeProfile)throw authRequired();return dataEpoch;}
 function ensureEpoch(epoch) {if(epoch!==dataEpoch || !activeProfile)throw authRequired();}
+function ensureReadEpoch(epoch) {if(epoch!==dataEpoch)throw authRequired();}
+function mergeAuthors(authors=[]) {const merged=new Map(db.users.map(p=>[p.id,p]));authors.map(profile).forEach(p=>merged.set(p.id,p));db.users=[...merged.values()].slice(-150);}
 function clearAccess() {
   clearForumData();clearTimeout(expiryTimer);
   window.dispatchEvent(new Event('bz-auth-cleared'));
@@ -48,6 +51,7 @@ async function loadProfiles(ids) {
   db.users=[...merged.values()].slice(-150);
 }
 async function loadArchivedParts() {
+  if(!activeProfile)return []; // Guest RPCs already omit retained duplicate parts.
   const epoch=memberEpoch();
   if(archivedRows && Date.now()-archiveLoadedAt<60000)return archivedRows;
   if(archivedRequest)return archivedRequest;
@@ -55,7 +59,11 @@ async function loadArchivedParts() {
   archivedRequest=request;try{return await request;}finally{if(archivedRequest===request)archivedRequest=null;}
 }
 export async function refreshData() {
-  const epoch=memberEpoch();
+  const epoch=dataEpoch;
+  if(!activeProfile) {
+    const result=check(await client.rpc('forum_guest_catalog'));
+    ensureReadEpoch(epoch);db.categories=result.categories;stats=result.stats;return;
+  }
   const [categories,counts,archived]=await Promise.all([
     client.from('categories').select('id,name,icon,color,parent_id,sort_order').order('sort_order').order('id').limit(200), client.rpc('forum_stats'),loadArchivedParts()
   ]);
@@ -64,35 +72,56 @@ export async function refreshData() {
   stats=adjustSeriesStats(check(counts),archived,db.categories);
 }
 export async function loadThreadPage({categoryId=null,search=null,authorId=null,sortBy='newest',offset=0}={}) {
-  const epoch=memberEpoch();
+  const epoch=dataEpoch;const guest=!activeProfile;
   const request=++pageRequest;
-  const hidden=await loadArchivedParts();ensureEpoch(epoch);
+  const hidden=await loadArchivedParts();ensureReadEpoch(epoch);
   const key=JSON.stringify([categoryId,search,authorId,sortBy]);
-  const result=await visibleThreadPage(async rawOffset=>{const page=check(await client.rpc('forum_thread_page',{p_category:categoryId,p_search:search,p_author:authorId,p_sort:sortBy,p_offset:rawOffset,p_limit:50}));ensureEpoch(epoch);return page;},
+  const authors=[];
+  const result=await visibleThreadPage(async rawOffset=>{const page=check(await client.rpc(guest?'forum_guest_thread_page':'forum_thread_page',{p_category:categoryId,p_search:search,...(guest?{}:{p_author:authorId}),p_sort:sortBy,p_offset:rawOffset,p_limit:50}));ensureReadEpoch(epoch);authors.push(...(page.authors || []));return page;},
     {offset,hiddenIds:new Set(hidden.map(r=>r.id)),hiddenCount:archivedMatches(hidden,{categoryId,search,authorId},db.categories).length,cursors:visibleCursors.get(key) || new Map([[0,0]])});
-  ensureEpoch(epoch);
+  ensureReadEpoch(epoch);
 
   const items=result.items.map(thread);
-  await loadProfiles(items.map(t=>t.authorId).concat(authorId || []));
-  ensureEpoch(epoch);
+  if(guest)mergeAuthors(authors);else await loadProfiles(items.map(t=>t.authorId).concat(authorId || []));
+  ensureReadEpoch(epoch);
   if(request!==pageRequest)return;
   db.threads=items;pageInfo={offset,total:Number(result.total)};visibleCursors.set(key,result.cursors);if(visibleCursors.size>20)visibleCursors.delete(visibleCursors.keys().next().value);
 }
 export async function loadThreadDetail(id,offset=0) {
-  const epoch=memberEpoch();
-  const [row,comments]=await Promise.all([
+  const epoch=dataEpoch;
+  if(!activeProfile) {
+    const result=check(await client.rpc('forum_guest_thread_detail',{p_id:id}));
+    ensureReadEpoch(epoch);db.replies=[];attachments.delete(id);
+    if(!result){details.delete(id);return null;}
+    mergeAuthors([result.author]);details.delete(id);details.set(id,thread(result.thread));
+    if(details.size>20)details.delete(details.keys().next().value);
+    return details.get(id);
+  }
+  const [row,comments,files]=await Promise.all([
     client.rpc('forum_thread_detail',{p_id:id}),
-    client.from('replies').select('id,thread_id,author_id,content,created_at').eq('thread_id',id).order('created_at').order('id').range(offset,offset+49)
+    client.from('replies').select('id,thread_id,author_id,content,created_at').eq('thread_id',id).order('created_at').order('id').range(offset,offset+49),
+    client.from('forum_attachments').select('id,thread_id,filename,mime_type,byte_size,source_url,license_text').eq('thread_id',id).eq('approved',true).order('created_at').limit(50)
   ]);
   const t=check(row);if(!t)return null;
   const rs=check(comments).map(reply);
+  const fs=check(files);
   ensureEpoch(epoch);
   await loadProfiles([t.author_id,...rs.map(r=>r.authorId)]);
   ensureEpoch(epoch);
+  attachments.set(id,fs);if(attachments.size>20)attachments.delete(attachments.keys().next().value);
   details.delete(id);details.set(id,thread(t));
   if(details.size>20)details.delete(details.keys().next().value);
   db.replies=offset===0 ? rs : [...db.replies.filter(r=>r.threadId===id),...rs];
   return details.get(id);
+}
+export const getAttachments=id=>activeProfile ? (attachments.get(id) || []) : [];
+export async function downloadAttachment(id) {
+  const user=await getCurrentUser();if(!user)throw authRequired();
+  const epoch=memberEpoch();
+  const file=check(await client.from('forum_attachments').select('id,filename,mime_type,storage_path').eq('id',id).eq('approved',true).maybeSingle());
+  ensureEpoch(epoch);if(!file)throw Error('Tài liệu không còn được phát hành.');
+  const blob=check(await client.storage.from('forum-resources').download(file.storage_path));
+  ensureEpoch(epoch);return {blob,filename:file.filename,mimeType:file.mime_type};
 }
 export async function loadAdminReplies() {
   const epoch=memberEpoch();

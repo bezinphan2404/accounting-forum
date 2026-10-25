@@ -2,6 +2,7 @@ import { canonicalSeriesRoute } from './published-series.js';
 import logoUrl from '../assets/logo.svg';
 import { mountArticleWatermark } from './article-watermark.js';
 import { mountArticleProtection } from './article-protection.js';
+import { renderAttachments, openAttachment } from './attachments.js';
 import { renderCommunityToolsShell, openCommunityToolsPanel, closeCommunityToolsPanel } from './community-tools.js';
 // ====================================
 // BZ Accounting Forum – Main Application
@@ -23,7 +24,7 @@ const ICONS = {
 };
 
 import { getDB, getCategories, getCategoryById, getThreadCountByCategory, getUsers, getUserById, createUser, authenticateUser, getThreads, getThreadById, createThread, incrementViews, toggleLike, getReplies, createReply, getReplyCount, getStats } from './remote-data.js';
-import { refreshData, getCurrentUser, clearForumData, signInWithGoogle, signOut, updateThread, updateReply, isPasswordRecovery, authCallbackError, sendPasswordReset, completePasswordReset, loadThreadPage, loadThreadDetail, loadAdminReplies, loadProfile, getPageInfo, loadFeedbackPage, getFeedbackPage, createFeedback, updateFeedback, getAIStatus, askAI, findAIArticles } from './remote-data.js';
+import { refreshData, getCurrentUser, clearForumData, signInWithGoogle, signOut, updateThread, updateReply, isPasswordRecovery, authCallbackError, sendPasswordReset, completePasswordReset, loadThreadPage, loadThreadDetail, loadAdminReplies, loadProfile, getPageInfo, getAttachments, downloadAttachment, loadFeedbackPage, getFeedbackPage, createFeedback, updateFeedback, getAIStatus, askAI, findAIArticles } from './remote-data.js';
 let currentUser = null;
 let aiRequestNumber=0;let aiMode='ask';let aiStatus={ready:false};let aiResult=null;let aiRelated=[];let aiPrompt='';
 
@@ -87,6 +88,7 @@ let routeVersion=0;
 let listOffset=0;
 let previousRoute='';
 const publicRoutes=new Set(['#/login','#/register','#/forgot-password','#/reset-password']);
+const isReadingRoute=hash=>hash==='#/' || /^#\/(?:category\/[a-z0-9-]+|thread\/[0-9a-f-]{36}(?:\?part=[1-9]\d?)?|search(?:\?q=.*)?)$/i.test(hash);
 function rememberDestination(hash) {
   if((/^#\/thread\/[0-9a-f-]{36}\?part=[1-9]\d?$/i.test(hash) || /^#\/(?:$|(?:category|thread|profile|edit)\/[a-z0-9-]+$|new-thread$|admin$|ai$|feedback$|search\?q=)/i.test(hash)) && hash.length<=500)sessionStorage.setItem('bz_return_to',hash);
 }
@@ -106,12 +108,12 @@ async function router() {
   if(hash!==previousRoute){listOffset=0;previousRoute=hash;}
   try {
     if(!publicRoutes.has(hash)) {
-      if(!currentUser){showMemberLogin();return;}
+      if(!currentUser && !isReadingRoute(hash)){showMemberLogin();return;}
       document.getElementById('app').innerHTML=`${renderHeader()}<main class="main-layout-full"><p role="status">Đang tải nội dung...</p></main>`;
-      const user=await getCurrentUser();
+      const user=currentUser ? await getCurrentUser() : null;
       if(version!==routeVersion)return;
       setCurrentUser(user);
-      if(!user){clearForumData();showMemberLogin();return;}
+      if(!user && !isReadingRoute(hash)){clearForumData();showMemberLogin();return;}
       await refreshData();
       if(version!==routeVersion)return;
     }
@@ -199,7 +201,7 @@ function renderHeader() {
           </div>
         </a>
 
-        ${currentUser ? `<div class="search-container">
+        ${!publicRoutes.has(getRoute()) ? `<div class="search-container">
           <span class="search-icon">${ICONS.search}</span>
           <input type="text" class="search-input" id="search-input"
                  placeholder="Tìm kiếm bài viết, chủ đề..."
@@ -493,6 +495,7 @@ function renderThread(threadId) {
             </div>
           </div>
 
+          ${renderAttachments({files:getAttachments(thread.id),hasAttachments:thread.has_attachments,viewer:currentUser})}
           <div class="replies-section">
             <div class="replies-title">${ICONS.comment} ${thread.replyCount} bình luận</div>
 
@@ -512,7 +515,7 @@ function renderThread(threadId) {
               `;
             }).join('')}
 
-            ${replies.length < thread.replyCount ? `<button class="btn btn-outline" data-action="more-replies" data-id="${escapeHtml(thread.id)}">Xem thêm bình luận</button>` : ''}
+            ${currentUser && replies.length < thread.replyCount ? `<button class="btn btn-outline" data-action="more-replies" data-id="${escapeHtml(thread.id)}">Xem thêm bình luận</button>` : ''}
             ${currentUser ? `
               <div class="card" style="padding: var(--space-lg); margin-top: var(--space-md);">
                 <h4 style="margin-bottom: var(--space-md); color: var(--color-navy);">Viết bình luận</h4>
@@ -525,8 +528,8 @@ function renderThread(threadId) {
               </div>
             ` : `
               <div class="card" style="padding: var(--space-lg); margin-top: var(--space-md); text-align:center;">
-                <p style="color: var(--color-text-light); margin-bottom: var(--space-md);">Đăng nhập để tham gia thảo luận</p>
-                <button class="btn btn-primary" data-route="#/login">Đăng nhập</button>
+                <p style="color: var(--color-text-light); margin-bottom: var(--space-md);">Đăng ký thành viên và đăng nhập để bình luận, xem hoặc tải tài liệu đính kèm.</p>
+                <div class="member-access-actions"><button class="btn btn-primary" data-action="member-login">Đăng nhập</button><button class="btn btn-outline" data-action="member-register">Đăng ký thành viên</button></div>
               </div>
             `}
           </div>
@@ -847,6 +850,7 @@ async function handleNewThread(e) {
 
 async function handleReply(e, threadId) {
   e.preventDefault();
+  if(!currentUser){showMemberLogin();return;}
   const content = document.getElementById('reply-content').value.trim();
   if (!content) { showToast('Vui lòng nhập nội dung bình luận', 'error'); return; }
 
@@ -856,6 +860,7 @@ async function handleReply(e, threadId) {
 }
 
 async function handleLike(threadId) {
+  if(!currentUser){showMemberLogin();return;}
   await toggleLike(threadId);
   renderThread(threadId);
 }
@@ -866,8 +871,8 @@ window.addEventListener('bz-auth-cleared',()=>{
   ++routeVersion;++aiRequestNumber;setCurrentUser(null);aiPrompt='';aiResult=null;aiRelated=[];aiStatus={ready:false};aiMode='ask';
   document.querySelectorAll('.article-preview-dialog').forEach(dialog=>dialog.remove());
   if(initialized) {
-    // Keep public recovery/registration pages usable; remove private DOM immediately.
-    if(publicRoutes.has(getRoute()))void router();else showMemberLogin();
+    // Remove member DOM synchronously before requesting public reading data.
+    if(publicRoutes.has(getRoute()) || isReadingRoute(getRoute())){document.getElementById('app').innerHTML='';void router();}else showMemberLogin();
   }
 });
 window.addEventListener('bz-auth-changed',()=>{
@@ -1037,7 +1042,7 @@ document.addEventListener('click',event=>{
  const el=event.target.closest('[data-action],[data-route]');if(!el || el.disabled)return;
  event.preventDefault();
  if(el.dataset.route){navigate(el.dataset.route);return;}
- const actions={'community-ai':()=>openCommunityTool('ai'),'community-feedback':()=>openCommunityTool('feedback'),'community-close':()=>closeCommunityToolsPanel(document.getElementById('community-tools')),'ai-mode':()=>{++aiRequestNumber;aiMode=el.dataset.mode==='edit' && currentUser?.role==='admin'?'edit':'ask';aiPrompt='';aiResult=null;aiRelated=[];renderAI();},'ai-search':handleAISearch,retry:()=>router(),back:()=>history.back(),menu:toggleDropdown,preview:previewPost,logout:handleLogout,google:()=>handleGoogleLogin({currentTarget:el}),sort:()=>changeSort(el.dataset.sort),like:()=>handleLike(el.dataset.id),
+ const actions={'member-login':()=>showMemberLogin(),'member-register':()=>{rememberDestination(getRoute());navigate('#/register');},'attachment-download':()=>openAttachment(el,{downloadAttachment,getViewer:()=>currentUser,showToast}),'attachment-view':()=>openAttachment(el,{downloadAttachment,getViewer:()=>currentUser,showToast,preview:true}),'community-ai':()=>openCommunityTool('ai'),'community-feedback':()=>openCommunityTool('feedback'),'community-close':()=>closeCommunityToolsPanel(document.getElementById('community-tools')),'ai-mode':()=>{++aiRequestNumber;aiMode=el.dataset.mode==='edit' && currentUser?.role==='admin'?'edit':'ask';aiPrompt='';aiResult=null;aiRelated=[];renderAI();},'ai-search':handleAISearch,retry:()=>router(),back:()=>history.back(),menu:toggleDropdown,preview:previewPost,logout:handleLogout,google:()=>handleGoogleLogin({currentTarget:el}),sort:()=>changeSort(el.dataset.sort),like:()=>handleLike(el.dataset.id),
  'next-page':()=>{listOffset+=20;return router();},'previous-page':()=>{listOffset=Math.max(0,listOffset-20);return router();},
  'more-replies':async()=>{await loadThreadDetail(el.dataset.id,getReplies(el.dataset.id).length);renderThread(el.dataset.id);}};
  if(Object.hasOwn(actions,el.dataset.action))void perform(el,actions[el.dataset.action]);

@@ -19,6 +19,9 @@ async function fixture({user={id},profileDelay=null,detailDelay=null,archiveDela
  from:table=>{calls.push(['table',table]);return chain(table);},rpc:async(name)=>{
   calls.push(['rpc',name]);
   if(name==='forum_thread_detail')return detailDelay?detailDelay.promise:{data:rawThread,error:null};
+  if(name==='forum_guest_thread_detail')return {data:{thread:{...rawThread,title:'Public',content:'Public knowledge'},author:{id,name:'Author'}},error:null};
+  if(name==='forum_guest_catalog')return {data:{categories:[],stats:{threads:1,categoryCounts:{}}},error:null};
+  if(name==='forum_guest_thread_page')return {data:{items:[rawThread],total:1,authors:[{id,name:'Author'}]},error:null};
   return {data:name==='forum_public_profiles'?[{id,name:'Member'}]:name==='forum_thread_page'?{items:[rawThread],total:1}:{threads:1,categoryCounts:{}},error:null};
  }});
  let code=await readFile(new URL('../js/remote-data.js',import.meta.url),'utf8');
@@ -27,15 +30,18 @@ async function fixture({user={id},profileDelay=null,detailDelay=null,archiveDela
  return {api,calls,events,auth:(...args)=>authCallback(...args),rawThread};
 }
 
-test('guests never issue content API requests through the data module',async()=>{
+test('guests read bounded public RPCs, never raw member tables',async()=>{
  const {api,calls}=await fixture({user:null});assert.equal(await api.getCurrentUser(),null);
- for(const fn of [()=>api.refreshData(),()=>api.loadThreadPage(),()=>api.loadThreadDetail(id),()=>api.loadProfile(id),()=>api.loadAdminReplies()])await assert.rejects(fn,/đăng nhập/);
- assert.deepEqual(calls,[]);
+ await api.refreshData();await api.loadThreadPage();await api.loadThreadDetail(id);
+ assert.equal(api.getThreadById(id).content,'Public knowledge');assert.deepEqual(api.getAttachments(id),[]);
+ assert.ok(calls.length>=3);assert.ok(calls.every(c=>c[0]==='rpc' && c[1].startsWith('forum_guest_')));
+ for(const fn of [()=>api.loadProfile(id),()=>api.loadAdminReplies(),()=>api.downloadAttachment(id)])await assert.rejects(fn,/đăng nhập/);
 });
 
-test('anonymous Auth users cannot initialize member content',async()=>{
+test('anonymous Auth users get public reading without member privileges',async()=>{
  const {api,calls}=await fixture({user:{id,is_anonymous:true}});
- assert.equal(await api.getCurrentUser(),null);await assert.rejects(api.refreshData(),/đăng nhập/);assert.deepEqual(calls,[]);
+ assert.equal(await api.getCurrentUser(),null);await api.refreshData();
+ assert.deepEqual(calls,[['rpc','forum_guest_catalog']]);await assert.rejects(api.downloadAttachment(id),/đăng nhập/);
 });
 
 test('retained part lookups cannot repopulate private caches after signout',async()=>{
@@ -64,7 +70,7 @@ test('requests that finish after signout cannot repopulate detail/profile caches
  await assert.rejects(pending,/đăng nhập/);assert.equal(api.getThreadById(id),undefined);assert.deepEqual(api.getUsers(),[]);
  const profileDelay=deferred();const f=await fixture({profileDelay});const reading=f.api.getCurrentUser();
  await new Promise(r=>setTimeout(r,0));f.auth('SIGNED_OUT',null);profileDelay.resolve({data:{id,name:'Late profile'},error:null});
- assert.equal(await reading,null);await assert.rejects(f.api.refreshData(),/đăng nhập/);
+ assert.equal(await reading,null);await assert.rejects(f.api.loadAdminReplies(),/đăng nhập/);
 });
 
 test('expiry clears cached content when the SDK cannot refresh a session',async()=>{

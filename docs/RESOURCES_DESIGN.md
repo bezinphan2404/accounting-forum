@@ -1,4 +1,6 @@
-# Biểu mẫu được phép phát hành — thiết kế triển khai tiếp
+# Biểu mẫu được phép phát hành — hồ sơ thiết kế
+
+Cập nhật 25/10/2026: quyền khách đã thay đổi theo yêu cầu mới của Zin. Khách được đọc bài và tìm bài; tệp đính kèm vẫn chỉ dành cho thành viên đăng nhập. Nền tảng bucket private, metadata, phê duyệt và xem/tải đã được triển khai trong `009_guest_read_attachments.sql`, `js/attachments.js` và `js/remote-data.js`; xem [GUEST_ACCESS.md](GUEST_ACCESS.md). Chưa phát hành tệp nào trong đợt cập nhật này. Các mục dưới là hồ sơ thiết kế trước đó, không thay yêu cầu mới. Giao diện upload cho admin và lịch sử phê duyệt đầy đủ vẫn là phần phát triển sau.
 
 Ngày 24/10/2026. Đây là thiết kế, **chưa phải tính năng đã triển khai**. Repo hiện không có viewer, storage bucket, bảng đính kèm hay chức năng upload/download. Bản thay đổi danh mục/quyền đọc không tự đưa bất kỳ tài liệu nào lên web.
 
