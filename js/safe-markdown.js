@@ -63,7 +63,14 @@ export function createMarkdownRenderer(window) {
       return `<a href="${escapeHtml(url.href)}" target="_blank" rel="noopener noreferrer">${label} ↗</a>`;
     } catch { return label; }
   };
-  renderer.image = ({text}) => escapeHtml(text);
+  renderer.image = ({href, text}) => {
+    // Only reviewed PNG assets hosted by this forum may be embedded.
+    const allowed = /^https:\/\/accounting-forum\.vercel\.app\/article-images\/[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9]+(?:-[a-z0-9]+)*\.png$/;
+    if (typeof href !== 'string' || !allowed.test(href)) return escapeHtml(text);
+    const src = escapeHtml(href);
+    const label = escapeHtml(text || 'Biểu mẫu minh họa');
+    return `<a class="article-image-link" href="${src}" target="_blank" rel="noopener noreferrer"><img class="article-inline-image" src="${src}" alt="${label}" loading="lazy" decoding="async" referrerpolicy="no-referrer"><span class="article-image-caption">${label} · Xem ảnh lớn ↗</span></a>`;
+  };
   const baseTable = Renderer.prototype.table;
   renderer.table = function(token) { return `<div class="table-responsive">${baseTable.call(this, token).replace('<table>', '<table class="forum-table">')}</div>`; };
   const parser = new Marked({renderer, gfm:true, breaks:true});
@@ -84,8 +91,8 @@ export function createMarkdownRenderer(window) {
     }
     html += parse(text.slice(start));
     return purifier.sanitize(html, {
-      ALLOWED_TAGS:['p','br','strong','em','del','code','pre','h1','h2','h3','h4','h5','h6','hr','a','span','div','section','article','header','table','thead','tbody','tr','th','td','ul','ol','li','blockquote'],
-      ALLOWED_ATTR:['href','target','rel','class','aria-label','align','start'],
+      ALLOWED_TAGS:['p','br','strong','em','del','code','pre','h1','h2','h3','h4','h5','h6','hr','a','span','div','section','article','header','table','thead','tbody','tr','th','td','ul','ol','li','blockquote','img'],
+      ALLOWED_ATTR:['href','target','rel','class','aria-label','align','start','src','alt','loading','decoding','referrerpolicy'],
       ALLOW_DATA_ATTR:false,
     });
   }

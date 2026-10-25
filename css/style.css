@@ -896,3 +896,17 @@ a:hover { color: var(--color-navy); }
 .article-part-title {font-size:clamp(20px,2.4vw,27px);line-height:1.45;color:#17496e;margin:0 0 24px;}
 .article-tab-pager {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:28px;padding-top:18px;border-top:1px solid #d7e3ed;color:#60778a;}
 @media(max-width:600px){.article-tab-list {gap:6px;}.article-tab-list [role=tab]{padding:9px 14px;}.article-tab-pager{gap:8px;}.article-tab-pager .btn{padding:9px 10px;font-size:13px;}}
+
+/* Reviewed form images in article content. Natural height preserves the form. */
+.content-body .article-image-link {display:block;max-width:100%;margin:24px 0;text-decoration:none;background:#fff;border:1px solid #d7e3ec;border-radius:12px;overflow:hidden;}
+.content-body .article-inline-image {display:block;width:100%;max-width:100%;height:auto;margin:0;}
+.content-body .article-image-caption {display:block;padding:12px 16px;background:#f1f6fa;color:#275674;font-size:14px;line-height:1.5;overflow-wrap:anywhere;}
+.content-body .article-image-link:focus-visible {outline:3px solid #1677b8;outline-offset:3px;}
+.content-body:has(.article-inline-image) .forum-table:has(th:nth-child(2):last-child) {min-width:0;table-layout:fixed;}
+.content-body:has(.article-inline-image) .forum-table:has(th:nth-child(2):last-child) th:first-child,.content-body:has(.article-inline-image) .forum-table:has(th:nth-child(2):last-child) td:first-child {width:35%;}
+.content-body:has(.article-inline-image) .forum-table:has(th:nth-child(2):last-child) th {white-space:normal;overflow-wrap:anywhere;}
+.content-body:has(.article-inline-image) > h3 {margin:32px 0 14px;line-height:1.4;color:#194c70;}
+.content-body:has(.article-inline-image) > h4 {margin:24px 0 12px;line-height:1.5;}
+.content-body:has(.article-inline-image) ul,.content-body:has(.article-inline-image) ol {padding-left:24px;margin:12px 0 20px;}
+.content-body:has(.article-inline-image) li {margin:8px 0;}
+@media(max-width:600px){.content-body .article-image-caption{padding:10px 12px;font-size:13px;}.content-body:has(.article-inline-image) > h3{font-size:20px;}.content-body:has(.article-inline-image) > h4{font-size:18px;}}
