@@ -13,6 +13,8 @@ create table storage.objects(id uuid primary key default gen_random_uuid(),bucke
 grant usage on schema storage to anon,authenticated;grant select,insert,update,delete on storage.objects to anon,authenticated;
 create policy legacy_wide_policy on storage.objects for all to anon,authenticated using(true) with check(true);`);
 for(const f of ['001_schema.sql','002_admin_roles.sql','003_security_hardening.sql','004_like_privacy.sql','005_member_read_categories.sql','007_security_input_bounds.sql','008_feedback_ai.sql'])await db.exec(await readFile(new URL('../supabase/'+f,import.meta.url),'utf8'));
+// Supabase projects can have broad default table privileges; exercise that production condition too.
+await db.exec('grant insert,update,delete on public.replies to anon');
 const migration=await readFile(new URL('../supabase/009_guest_read_attachments.sql',import.meta.url),'utf8');await db.exec(migration);
 await db.query('insert into auth.users(id) values($1),($2)',[a,admin]);await db.query("insert into public.forum_roles values($1,'admin')",[admin]);
 await db.query("insert into public.threads(id,author_id,category_id,title,content) values($1,$2,'cat-2-vat','Public guide',repeat('Knowledge ',100))",[post,a]);

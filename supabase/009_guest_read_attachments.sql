@@ -1,6 +1,7 @@
 -- Public article reading; member-only attachments. No article/file content rewritten.
 -- Additive; apply after 008. Existing member/write/profile RPCs remain restricted.
 begin;
+revoke insert,update,delete on public.replies from public,anon;
 drop policy if exists reply_member_insert_guard on public.replies;
 create policy reply_member_insert_guard on public.replies as restrictive for insert to authenticated with check (
  (select auth.uid()) is not null and coalesce((select auth.jwt()->>'is_anonymous'),'false')<>'true');
