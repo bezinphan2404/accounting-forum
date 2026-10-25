@@ -1,9 +1,11 @@
 # Watermark bài viết
 
-Watermark lặp trên vùng bài viết sau khi thành viên đăng nhập. Nội dung gồm BZ Forum, mã TV lấy từ 12 chữ số hex đầu của ID hồ sơ, và thời điểm mở/render bài theo UTC+7. Không đưa tên, email, ID đầy đủ hoặc thông tin phiên đăng nhập vào watermark. Không thêm lưu trữ, nhật ký hay yêu cầu mạng.
+Watermark lặp trên vùng bài viết sau khi thành viên đăng nhập. Theo yêu cầu của Zin ngày 25/10/2026, nội dung gồm BZ Forum, **tên hiển thị của thành viên đang xem** (trường name của hồ sơ) và thời điểm mở/render bài theo UTC+7. Không dùng tên tác giả thay cho người xem; không đưa mã TV, email, ID tài khoản hoặc thông tin phiên đăng nhập vào watermark. Không thêm lưu trữ, nhật ký hoặc yêu cầu mạng.
 
-Lớp phủ bỏ qua thao tác chuột, không nhận focus và ẩn khỏi trình đọc màn hình. Nội dung Markdown, link nguồn, quyền đọc hiện tại và các trường bình luận/biên tập giữ nguyên. Không thêm nút tải hoặc xuất tệp. Không chặn bôi đen, phím tắt hay chụp màn hình.
+Tên được chuẩn hóa khoảng trắng và Unicode, loại ký tự điều khiển; dùng tối đa 100 ký tự theo giới hạn trường tên hồ sơ. Tên dài tự xuống dòng; kích thước nền tương ứng tăng để không cắt nội dung. Tên trống dùng nhãn “Thành viên”, không lấy email thay thế. Ký tự XML được escape để tên luôn là văn bản, không trở thành mã SVG.
 
-Đây là dấu nhận diện để hạn chế phát tán, không phải DRM hay cơ chế chống chụp màn hình. Mã và thời gian được tạo ở trình duyệt, có thể bị sửa hoặc gỡ và không phải chứng cứ định danh có chữ ký. CSS yêu cầu giữ màu khi in nhưng kết quả còn tùy trình duyệt và thiết lập in.
+Lớp phủ bỏ qua thao tác chuột, không nhận focus và ẩn khỏi trình đọc màn hình. Nội dung Markdown, link nguồn, quyền đọc và các trường bình luận/biên tập giữ nguyên. Không thêm nút tải hoặc xuất tệp; không chặn bôi đen, phím tắt hay chụp màn hình.
 
-Kiểm tra: mã của hai người khác nhau; chỉ đưa mã rút gọn; giờ Việt Nam qua ngày mới; đầu vào không hợp lệ; thay/xóa watermark không để lại mã cũ; bài gốc và link không đổi; watermark không xuất hiện ở trình sửa/AI và biến mất khi điều hướng/đăng xuất. Xem trước trên bài nhiều cột, bảng và bài dài ở 1280×900, 390×844.
+Đây là dấu nhận diện để hạn chế phát tán, không phải DRM hoặc bằng chứng định danh có chữ ký. Tên và thời gian được tạo ở trình duyệt, có thể bị sửa hoặc gỡ. CSS giữ màu khi in tùy hỗ trợ và thiết lập trình duyệt.
+
+Kiểm tra: tên người xem; không rò email/ID; giờ Việt Nam qua ngày mới; tên dài/tên trống/ký tự XML; thay người xem/xóa watermark không để lại tên cũ; liên kết và bài gốc giữ nguyên; không xuất hiện ở trình sửa/AI, biến mất khi điều hướng/đăng xuất. Xem trên 1280×1000 và 390×844.

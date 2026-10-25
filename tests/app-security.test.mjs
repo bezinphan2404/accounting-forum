@@ -74,7 +74,8 @@ test('UI renders without executable attributes or global handlers and delegated 
  w.document.querySelector('form[data-submit="handleAI"]').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await settle();assert.equal(calls.filter(c=>c[0]==='ai-ask').at(-1)[1].mode,'edit');assert.ok(w.document.querySelector('.ai-answer'));assert.equal(w.document.querySelectorAll('.ai-answer script').length,0);
  // The reader mark exists on article content, not editor/AI input, and clears on navigation.
  w.location.hash='#/thread/'+id;await settle();
- assert.equal(w.document.querySelector('.article-watermark').dataset.memberCode,'TV-111111111111');
+ assert.equal(w.document.querySelector('.article-watermark').dataset.memberName,user.name);
+ assert.equal(w.document.querySelector('.article-watermark').dataset.memberCode,undefined);
  assert.equal(w.document.querySelector('.article-watermark').getAttribute('aria-hidden'),'true');
  thread.content=':::tabs\n:::tab Phần một\nNội dung một.\n:::tab Phần hai\nNội dung hai.\n:::endtabs';
  w.location.hash='#/thread/'+id+'?part=2';await settle();
