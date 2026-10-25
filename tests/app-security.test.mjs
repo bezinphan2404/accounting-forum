@@ -21,7 +21,7 @@ test('UI renders without executable attributes or global handlers and delegated 
  authenticateUser:async()=>{if(loginSuccess){signedIn=true;return user;}throw Error('invalid login credentials');},createUser:async()=>({error:'email rate limit exceeded'}),
  getFeedbackPage:()=>({items:[{id,author_name:user.name,author_id:id,kind:'idea',status:'new',title:'<script>feedback</script>',content:'Public feedback <img src=x onerror=bad()>',admin_response:'',created_at:new Date().toISOString()}],total:1,offset:0}),loadFeedbackPage:async o=>calls.push(['feedback-page',o]),createFeedback:async o=>calls.push(['feedback-create',o]),updateFeedback:async(...o)=>calls.push(['feedback-update',...o]),
  getAIStatus:async()=>({ready:aiReady}),findAIArticles:async q=>{calls.push(['ai-search',q]);return [{id,title:'Source article'}];},askAI:async o=>{calls.push(['ai-ask',o]);return {generated:true,answer:'### Private AI draft\n<script>bad()</script>',sources:[{id,title:'Source article'}]};},
- signOut:async()=>{},updateThread:async()=>{},updateReply:async()=>{},sendPasswordReset:async()=>{},completePasswordReset:async()=>{},createThread:async()=>thread,incrementViews:()=>{},toggleLike:async()=>{},createReply:async()=>{}};
+ signOut:async()=>{signedIn=false;w.dispatchEvent(new w.Event('bz-auth-cleared'));await new Promise(r=>setTimeout(r,5));},updateThread:async()=>{},updateReply:async()=>{},sendPasswordReset:async()=>{},completePasswordReset:async()=>{},createThread:async()=>thread,incrementViews:()=>{},toggleLike:async()=>{},createReply:async()=>{}};
  globalThis.__appTestAPI=api;
  let code=await readFile(new URL('../js/app.js',import.meta.url),'utf8');
  code=code.replace("import logoUrl from '../assets/logo.svg';","const logoUrl='/logo.svg';");
@@ -93,7 +93,8 @@ test('UI renders without executable attributes or global handlers and delegated 
  w.location.hash='#/new-thread';await settle();assert.equal(w.document.querySelector('.article-watermark'),null);
  // Signout drops member controls and re-renders the current public article.
  w.location.hash='#/thread/'+id;await settle();
- signedIn=false;w.dispatchEvent(new w.Event('bz-auth-cleared'));await settle();
+ w.document.querySelector('[data-action="logout"]').click();await settle();
+ assert.equal(w.location.hash,'#/thread/'+id);
  assert.equal(w.document.querySelector('#reply-content'),null);assert.ok(w.document.querySelector('.thread-detail'));
  assert.equal(w.document.querySelector('[data-route^="#/edit/"]'),null);
  for(const route of ['#/','#/thread/'+id,'#/category/cat-1','#/search?q=private']) {

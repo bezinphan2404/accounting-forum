@@ -823,11 +823,12 @@ async function handleRegister(e) {
 }
 
 async function handleLogout() {
+  const destination=isReadingRoute(getRoute())?getRoute():'#/';
   sessionStorage.removeItem('bz_return_to');
   await signOut();
   setCurrentUser(null);
   showToast('Đã đăng xuất', 'info');
-  history.replaceState(null,'',location.pathname+'#/login');renderLogin();
+  history.replaceState(null,'',location.pathname+location.search+destination);await router();
 }
 
 async function handleNewThread(e) {
