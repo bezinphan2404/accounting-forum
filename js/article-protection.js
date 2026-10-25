@@ -55,8 +55,12 @@ function installForDocument(doc) {
   return state;
 }
 
-export function mountArticleProtection(surface, {onBlocked=()=>{}}={}) {
+export function mountArticleProtection(surface, {viewer=null,onBlocked=()=>{}}={}) {
   if (!surface) return false;
+  // The caller supplies the current profile/role verified by the existing data layer.
+  // Removing the class also disables installed document listeners on this reading surface.
+  surface.classList.remove('article-copy-protected');
+  if (viewer?.role==='admin') return false;
   surface.classList.add('article-copy-protected');
   installForDocument(surface.ownerDocument).onBlocked=onBlocked;
   return true;

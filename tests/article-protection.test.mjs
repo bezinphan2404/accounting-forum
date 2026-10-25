@@ -73,3 +73,20 @@ test('remounting is safe, notices do not spam and navigation removes restriction
   }
   const all=new dom.window.KeyboardEvent('keydown',{key:'a',ctrlKey:true,bubbles:true,cancelable:true});doc.dispatchEvent(all);assert.equal(all.defaultPrevented,false);
 });
+
+test('admin reading allows selection, copy/cut, context menu and shortcuts; downgrade restores restrictions',()=>{
+  const {dom,doc,surface}=fixture();let notices=0;
+  assert.equal(mountArticleProtection(surface,{viewer:{role:'admin'},onBlocked:()=>notices++}),false);
+  assert.equal(surface.classList.contains('article-copy-protected'),false);
+  select(doc,surface);
+  for(const type of ['copy','cut','selectstart','dragstart','contextmenu']){
+    const e=event(dom,type);surface.querySelector('p').dispatchEvent(e);assert.equal(e.defaultPrevented,false,type);
+  }
+  for(const key of ['a','c','x','Insert']){
+    const e=new dom.window.KeyboardEvent('keydown',{key,ctrlKey:true,bubbles:true,cancelable:true});doc.dispatchEvent(e);assert.equal(e.defaultPrevented,false,key);
+  }
+  assert.equal(doc.getSelection().rangeCount,1);assert.equal(notices,0);
+  for(const viewer of [{role:'member'},{role:'moderator'},null]){
+    mountArticleProtection(surface,{viewer});const e=event(dom,'copy');surface.querySelector('p').dispatchEvent(e);assert.equal(e.defaultPrevented,true);
+  }
+});

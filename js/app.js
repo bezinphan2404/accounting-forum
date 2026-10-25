@@ -540,7 +540,7 @@ function renderThread(threadId) {
   `;
   mountArticleTabs(app.querySelector('.thread-detail-content'), {initialPart:Number(new URLSearchParams(getRoute().split('?')[1] || '').get('part') || 1),onSelect:part=>history.replaceState(null,'',location.pathname+location.search+'#/thread/'+thread.id+(part>1?'?part='+part:''))});
   mountArticleWatermark(app.querySelector('.thread-detail-content'), currentUser);
-  mountArticleProtection(app.querySelector('.thread-detail-content'), {onBlocked:()=>showToast('Diễn đàn hạn chế sao chép nội dung bài viết. Bạn vẫn có thể mở các nguồn pháp lý để tham khảo.','info')});
+  mountArticleProtection(app.querySelector('.thread-detail-content'), {viewer:currentUser,onBlocked:()=>showToast('Diễn đàn hạn chế sao chép nội dung bài viết. Bạn vẫn có thể mở các nguồn pháp lý để tham khảo.','info')});
 }
 
 // ====================================================================

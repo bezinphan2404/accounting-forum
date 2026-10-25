@@ -85,7 +85,9 @@ test('UI renders without executable attributes or global handlers and delegated 
  assert.equal(w.document.querySelector('.article-watermark').dataset.memberName,user.name);
  assert.equal(w.document.querySelector('.article-watermark').dataset.memberCode,undefined);
  assert.equal(w.document.querySelector('.article-watermark').getAttribute('aria-hidden'),'true');
- assert.ok(w.document.querySelector('.article-copy-protected')); // Admin reading view is covered too.
+ assert.equal(w.document.querySelector('.article-copy-protected'),null); // Admin can reuse the article for editing/video.
+ const adminCopy=new w.Event('copy',{bubbles:true,cancelable:true});w.document.querySelector('.content-body p').dispatchEvent(adminCopy);assert.equal(adminCopy.defaultPrevented,false);
+ const adminAll=new w.KeyboardEvent('keydown',{key:'a',ctrlKey:true,bubbles:true,cancelable:true});w.document.dispatchEvent(adminAll);assert.equal(adminAll.defaultPrevented,false);
  thread.content=':::tabs\n:::tab Phần một\nNội dung một.\n:::tab Phần hai\nNội dung hai.\n:::endtabs';
  w.location.hash='#/thread/'+id+'?part=2';await settle();
  assert.equal(w.document.querySelectorAll('[role=tab]').length,2);assert.equal(w.document.querySelectorAll('[role=tabpanel]')[1].hidden,false);
