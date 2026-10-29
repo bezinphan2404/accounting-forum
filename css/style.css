@@ -921,3 +921,9 @@ a:hover { color: var(--color-navy); }
 .attachment-item {padding:16px 0;border-top:1px solid var(--color-border);overflow-wrap:anywhere;}
 .attachment-item p {margin:6px 0 12px;}
 .attachment-actions {justify-content:flex-start;}
+
+/* Editorial key notes opt in through their bold GHI NHỚ / CẦN PHÂN BIỆT label. */
+.content-body blockquote.article-key-note {margin:18px 0;padding:14px 18px;background:#fff7d6;border-left:4px solid #d4a522;border-radius:8px;color:#303b43;overflow-wrap:anywhere;}
+.content-body blockquote.article-key-note p {margin:0;}
+.content-body blockquote.article-key-note p + p {margin-top:10px;}
+.content-body blockquote.article-key-note strong {color:#503d0a;}

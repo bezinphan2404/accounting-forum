@@ -71,6 +71,12 @@ export function createMarkdownRenderer(window) {
     const label = escapeHtml(text || 'Biểu mẫu minh họa');
     return `<a class="article-image-link" href="${src}" target="_blank" rel="noopener noreferrer"><img class="article-inline-image" src="${src}" alt="${label}" loading="lazy" decoding="async" referrerpolicy="no-referrer"><span class="article-image-caption">${label} · Xem ảnh lớn ↗</span></a>`;
   };
+  renderer.blockquote = function({tokens}) {
+    const first = tokens[0];
+    const lead = first?.type === 'paragraph' ? first.tokens?.[0] : null;
+    const isKeyNote = lead?.type === 'strong' && /^(?:GHI NHỚ\s*[·:]|CẦN PHÂN BIỆT:|Nhớ đúng:)/u.test(lead.text);
+    return `<blockquote${isKeyNote ? ' class="article-key-note"' : ''}>${this.parser.parse(tokens)}</blockquote>`;
+  };
   const baseTable = Renderer.prototype.table;
   renderer.table = function(token) { return `<div class="table-responsive">${baseTable.call(this, token).replace('<table>', '<table class="forum-table">')}</div>`; };
   const parser = new Marked({renderer, gfm:true, breaks:true});
